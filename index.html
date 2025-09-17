@@ -32,15 +32,19 @@
             </div>
 
             <div class="actions">
-                <button class="action" aria-label="Profile">
+                <button class="action" aria-label="Profile" id="profileButton">
                     <span class="icon">👤</span>
-                    <span class="label">Profile</span>
+                    <span class="label" id="profileLabel">Profile</span>
+                </button>
+                <button class="action" aria-label="Create or join room" id="roomButton">
+                    <span class="icon">🎥</span>
+                    <span class="label">Room</span>
                 </button>
                 <button class="action" aria-label="Toggle theme" id="themeToggle">
                     <span class="icon">🌓</span>
                     <span class="label">Theme</span>
                 </button>
-                <button class="action" aria-label="Wishlist">
+                <button class="action" aria-label="Wishlist" id="openWishlist">
                     <span class="icon">🤍</span>
                     <span class="label">Wishlist</span>
                     <span class="badge" id="wishlistCount">0</span>
@@ -202,52 +206,20 @@
         </div>
     </div>
 
-    <!-- Wishlist Picker Modal -->
-    <div class="modal" id="wishlistPicker" aria-hidden="true" role="dialog" aria-modal="true">
-        <div class="modal-backdrop" data-close-modal></div>
+    <!-- Room/Create Join Modal -->
+    <div class="modal" id="roomModal" aria-hidden="true" role="dialog" aria-modal="true">
+        <div class="modal-backdrop" data-close-room></div>
         <div class="modal-content" role="document">
-            <button class="modal-close" aria-label="Close" data-close-modal>✕</button>
-            <div class="modal-body wishlist-picker-body">
-                <div class="wishlist-picker-left">
-                    <h3>Add to Wishlist</h3>
-                    <div id="wishlistPickerLists"><!-- lists injected by JS --></div>
-                    <div class="picker-actions">
-                        <input id="newWishlistName" type="text" placeholder="New wishlist name" aria-label="New wishlist name" />
-                        <button class="btn-primary" id="createWishlistBtn">Create</button>
-                    </div>
-                </div>
-                <div class="wishlist-picker-right">
-                    <h4>Selected Product</h4>
-                    <div id="pickerProductPreview"><!-- preview injected by JS --></div>
-                </div>
-            </div>
-            <div class="modal-footer wishlist-picker-footer">
-                <button class="btn-outline" id="openShareFromPicker">Share selected wishlist</button>
-            </div>
+            <button class="modal-close" aria-label="Close" data-close-room>✕</button>
+            <div class="modal-body" id="roomModalBody"><!-- filled by JS --></div>
         </div>
     </div>
 
-    <!-- Share Wishlist Modal -->
-    <div class="modal" id="shareWishlist" aria-hidden="true" role="dialog" aria-modal="true">
-        <div class="modal-backdrop" data-close-modal></div>
-        <div class="modal-content" role="document">
-            <button class="modal-close" aria-label="Close" data-close-modal>✕</button>
-            <div class="modal-body share-body">
-                <div>
-                    <h3>Share Wishlist</h3>
-                    <p id="shareWishlistName" class="muted"></p>
-                    <div id="contactsList"><!-- contacts injected by JS --></div>
-                    <div class="share-link-row">
-                        <input id="shareLink" type="text" readonly value="" />
-                        <button class="btn-primary" id="copyShareLink">Copy Link</button>
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn-primary" id="confirmShareBtn">Share</button>
-            </div>
-        </div>
-    </div>
+    <!-- Video container -->
+    <section class="container" id="roomSection" hidden>
+        <h2 class="section-title">Shopping Room</h2>
+        <div id="jitsiContainer"></div>
+    </section>
 
     <footer class="footer">
         <div class="container footer-grid">
@@ -297,6 +269,28 @@
         </div>
     </footer>
 
+    <!-- Wishlist Manage Modal -->
+    <div class="modal" id="wishlistModal" aria-hidden="true" role="dialog" aria-modal="true">
+        <div class="modal-backdrop" data-close-wishlist></div>
+        <div class="modal-content" role="document">
+            <button class="modal-close" aria-label="Close" data-close-wishlist>✕</button>
+            <div class="modal-body" id="wishlistModalBody"><!-- filled by JS --></div>
+        </div>
+    </div>
+
+    <!-- Wishlist Picker Modal -->
+    <div class="modal" id="pickerModal" aria-hidden="true" role="dialog" aria-modal="true">
+        <div class="modal-backdrop" data-close-picker></div>
+        <div class="modal-content" role="document">
+            <button class="modal-close" aria-label="Close" data-close-picker>✕</button>
+            <div class="modal-body" id="pickerModalBody"><!-- filled by JS --></div>
+        </div>
+    </div>
+
+    <!-- Toasts -->
+    <div id="toastContainer" aria-live="polite" aria-atomic="true"></div>
+
+    <script src="https://meet.jit.si/external_api.js"></script>
     <script src="./script.js"></script>
 </body>
 </html>
