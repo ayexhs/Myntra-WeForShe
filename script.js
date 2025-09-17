@@ -100,6 +100,11 @@ function loadState() {
     if (user && user.id) state.user = user;
     const lists = JSON.parse(localStorage.getItem('myntra_wishlists_v2') || '[]');
     state.wishlists = Array.isArray(lists) ? lists : [];
+    // update badge: sum of items across lists
+    try {
+      const totalItems = state.wishlists.reduce((sum, l) => sum + ((l.items||[]).length), 0);
+      state.wishlistCount = totalItems; // repurpose header badge to show items in multi-wishlist
+    } catch {}
   } catch {}
 }
 
@@ -283,6 +288,7 @@ function addItemToList(listId, productId, size, note) {
   list.items.push({ productId, size: size || '', note: note || '' });
   upsertWishlist(list);
   toast('Added to "' + list.name + '"');
+  refreshWishlistBadge();
   return { ok: true };
 }
 
@@ -300,7 +306,7 @@ function openWishlistModal() {
       ${lists.map(l => `
         <div class="wishlist-item" data-id="${l.id}">
           <div class="wishlist-row">
-            <strong>${l.name}</strong>
+            <strong class="wishlist-name" data-open-list data-id="${l.id}">${l.name}</strong>
             <div class="wishlist-actions">
               <button class="btn-outline" data-share-list data-id="${l.id}">Share</button>
               <button class="btn-outline" data-delete-list data-id="${l.id}">Delete</button>
@@ -310,6 +316,7 @@ function openWishlistModal() {
             <small>Members: ${[l.ownerId, ...(l.members||[])].length}</small>
             <small>Items: ${(l.items||[]).length}</small>
           </div>
+          <div class="wishlist-items" data-items-for="${l.id}" hidden></div>
         </div>
       `).join('')}
     </div>
@@ -334,7 +341,57 @@ function openWishlistModal() {
       const id = t.getAttribute('data-id');
       openShareModal(id);
     }
+    if (t && (t.matches('[data-open-list]') || t.closest('[data-open-list]'))) {
+      const id = (t.getAttribute('data-id')) || t.closest('[data-open-list]').getAttribute('data-id');
+      renderWishlistItems(id);
+    }
+    if (t && t.matches('[data-remove-item]')) {
+      const listId = t.getAttribute('data-list');
+      const pid = Number(t.getAttribute('data-pid'));
+      const list = state.wishlists.find(l => l.id === listId);
+      if (list) {
+        list.items = (list.items||[]).filter(it => it.productId !== pid);
+        upsertWishlist(list);
+        renderWishlistItems(listId);
+        refreshWishlistBadge();
+      }
+    }
   });
+}
+
+function refreshWishlistBadge() {
+  const wishlistCountEl = document.getElementById('wishlistCount');
+  const totalItems = state.wishlists.reduce((sum, l) => sum + ((l.items||[]).length), 0);
+  state.wishlistCount = totalItems;
+  if (wishlistCountEl) wishlistCountEl.textContent = String(totalItems);
+}
+
+function renderWishlistItems(listId) {
+  const container = document.querySelector(`[data-items-for="${listId}"]`);
+  if (!container) return;
+  const list = state.wishlists.find(l => l.id === listId);
+  const items = (list && list.items) || [];
+  if (!items.length) {
+    container.innerHTML = '<em>No items yet.</em>';
+  } else {
+    container.innerHTML = items.map(it => {
+      const p = trendingProducts.find(x => x.id === it.productId);
+      const img = p ? p.img : 'https://dummyimage.com/80x80/eee/aaa&text=%20';
+      const title = p ? (p.brand + ' ' + p.title) : ('Product #' + it.productId);
+      return `
+        <div class="wishlist-product">
+          <img src="${img}" alt="${title}">
+          <div class="meta">
+            <strong>${title}</strong>
+            ${it.size ? `<small>Size: ${it.size}</small>` : ''}
+            ${it.note ? `<small>Note: ${it.note}</small>` : ''}
+          </div>
+          <button class="btn-outline" data-remove-item data-list="${listId}" data-pid="${it.productId}">Remove</button>
+        </div>
+      `;
+    }).join('');
+  }
+  container.hidden = false;
 }
 
 function openShareModal(listId) {

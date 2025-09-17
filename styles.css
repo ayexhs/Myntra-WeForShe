@@ -219,6 +219,30 @@ body {
 .wishlist-row { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
 .wishlist-actions { display: flex; gap: 8px; }
 .input { padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); }
+.wishlist-name { cursor: pointer; }
+.wishlist-items { display: flex; gap: 12px; padding-top: 6px; overflow-x: auto; }
+.wishlist-product {
+  flex: 0 0 160px;
+  display: grid;
+  grid-template-rows: auto auto auto;
+  gap: 8px;
+  align-items: start;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  background: #fff;
+}
+.wishlist-product img {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  height: auto;
+  object-fit: cover;
+  border-radius: 8px;
+}
+.wishlist-product .meta { display: grid; gap: 4px; }
+.wishlist-product .meta strong { font-size: 12px; line-height: 1.2; }
+.wishlist-product .meta small { font-size: 11px; opacity: .8; }
+.wishlist-product .btn-outline { justify-self: end; padding: 6px 8px; font-size: 12px; }
 
 /* Picker modal */
 #pickerModal .modal-body { grid-template-columns: 1fr; }
