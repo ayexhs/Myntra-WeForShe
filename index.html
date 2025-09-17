@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Myntra Clone</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+    <header class="header">
+        <div class="container header-inner">
+            <a href="#" class="logo" aria-label="Myntra Home">
+                <span class="logo-glyph">M</span>
+            </a>
+
+            <nav class="nav" aria-label="Primary">
+                <a class="nav-link" href="#">MEN</a>
+                <a class="nav-link" href="#">WOMEN</a>
+                <a class="nav-link" href="#">KIDS</a>
+                <a class="nav-link" href="#">HOME</a>
+                <a class="nav-link" href="#">BEAUTY</a>
+                <a class="nav-link" href="#">GENZ</a>
+                <a class="nav-link badge-new" href="#">STUDIO</a>
+            </nav>
+
+            <div class="search">
+                <span class="icon">🔍</span>
+                <input id="searchInput" type="text" placeholder="Search for products, brands and more" aria-label="Search" />
+            </div>
+
+            <div class="actions">
+                <button class="action" aria-label="Profile">
+                    <span class="icon">👤</span>
+                    <span class="label">Profile</span>
+                </button>
+                <button class="action" aria-label="Toggle theme" id="themeToggle">
+                    <span class="icon">🌓</span>
+                    <span class="label">Theme</span>
+                </button>
+                <button class="action" aria-label="Wishlist">
+                    <span class="icon">🤍</span>
+                    <span class="label">Wishlist</span>
+                    <span class="badge" id="wishlistCount">0</span>
+                </button>
+                <button class="action" aria-label="Bag">
+                    <span class="icon">🛍️</span>
+                    <span class="label">Bag</span>
+                    <span class="badge" id="cartCount">0</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <!-- Hero Carousel -->
+        <section class="hero">
+            <div class="carousel" id="heroCarousel" aria-roledescription="carousel">
+                <button class="carousel-control prev" data-dir="-1" aria-label="Previous slide">‹</button>
+                <div class="carousel-track">
+                    <article class="slide is-active" aria-label="Early Bird Days">
+                        <img src="https://images.unsplash.com/photo-1520975922284-6c67e0e0b32e?q=80&w=1600&auto=format&fit=crop" alt="Early Bird Days - Catch sale prices before sale" />
+                        <div class="slide-overlay">
+                            <h2>Early Bird Days</h2>
+                            <p>Catch sale prices before sale</p>
+                            <button class="btn-primary">Shop Now</button>
+                        </div>
+                    </article>
+                    <article class="slide" aria-label="Rising Stars">
+                        <img src="https://images.unsplash.com/photo-1543087903-1ac2ec7aa8c5?q=80&w=1600&auto=format&fit=crop" alt="Rising Stars" />
+                        <div class="slide-overlay">
+                            <h2>Rising Stars</h2>
+                            <p>Fresh fits from new brands</p>
+                            <button class="btn-primary">Explore</button>
+                        </div>
+                    </article>
+                    <article class="slide" aria-label="Festive Offers">
+                        <img src="https://images.unsplash.com/photo-1512436991641-6745cdb1723f?q=80&w=1600&auto=format&fit=crop" alt="Festive Offers" />
+                        <div class="slide-overlay">
+                            <h2>Festive Treats</h2>
+                            <p>Bank offers & instant discounts</p>
+                            <button class="btn-primary">Grab Deals</button>
+                        </div>
+                    </article>
+                </div>
+                <button class="carousel-control next" data-dir="1" aria-label="Next slide">›</button>
+                <div class="carousel-dots" aria-label="Slide navigation"></div>
+            </div>
+        </section>
+
+        <!-- Sponsors / Partners strip -->
+        <section class="sponsors container">
+            <div class="sponsor">
+                <span class="overline">ASSOCIATE SPONSOR</span>
+                <img src="https://dummyimage.com/200x60/fff/000&text=U.S.+Polo+Assn." alt="US Polo Assn" />
+            </div>
+            <div class="sponsor">
+                <span class="overline">TITLE SPONSOR</span>
+                <img src="https://dummyimage.com/200x60/fff/000&text=PUMA" alt="Puma" />
+            </div>
+            <div class="sponsor">
+                <span class="overline">ASSOCIATE SPONSOR</span>
+                <img src="https://dummyimage.com/220x60/fff/000&text=JACK+%26+JONES" alt="Jack & Jones" />
+            </div>
+        </section>
+
+        <!-- Bank Offers Banner -->
+        <section class="bank-offers container">
+            <div class="offer-card hdfc">
+                <h3>10% Instant Discount*</h3>
+                <p>On Credit Cards & EasyEMI Transactions</p>
+            </div>
+            <div class="offer-card axis">
+                <h3>Flat ₹300 Off</h3>
+                <p>On your first purchase</p>
+            </div>
+            <div class="offer-card sbi">
+                <h3>Extra ₹500 Cashback</h3>
+                <p>On orders above ₹3,999</p>
+            </div>
+        </section>
+
+        <!-- Categories Grid -->
+        <section class="categories container">
+            <h2 class="section-title">Shop By Category</h2>
+            <div class="grid category-grid">
+                <a class="category-tile" href="#">
+                    <img src="https://images.unsplash.com/photo-1516826957135-700dedea698c?q=80&w=800&auto=format&fit=crop" alt="Men" />
+                    <span>Men</span>
+                </a>
+                <a class="category-tile" href="#">
+                    <img src="https://images.unsplash.com/photo-1520975443226-18e3f6d3f482?q=80&w=800&auto=format&fit=crop" alt="Women" />
+                    <span>Women</span>
+                </a>
+                <a class="category-tile" href="#">
+                    <img src="https://images.unsplash.com/photo-1503454537195-1dcabb73ffb9?q=80&w=800&auto=format&fit=crop" alt="Kids" />
+                    <span>Kids</span>
+                </a>
+                <a class="category-tile" href="#">
+                    <img src="https://images.unsplash.com/photo-1558211583-d26f610c1fdd?q=80&w=800&auto=format&fit=crop" alt="Home" />
+                    <span>Home</span>
+                </a>
+                <a class="category-tile" href="#">
+                    <img src="https://images.unsplash.com/photo-1512496015851-a90fb38ba796?q=80&w=800&auto=format&fit=crop" alt="Beauty" />
+                    <span>Beauty</span>
+                </a>
+                <a class="category-tile" href="#">
+                    <img src="https://images.unsplash.com/photo-1520975732478-3a2d3b1b9d4b?q=80&w=800&auto=format&fit=crop" alt="Footwear" />
+                    <span>Footwear</span>
+                </a>
+            </div>
+        </section>
+
+        <!-- Trending Grid -->
+        <section class="trending container">
+            <h2 class="section-title">Trending Now</h2>
+            <div class="controls" id="controlsBar">
+                <div class="control">
+                    <label for="filterCategory">Category</label>
+                    <select id="filterCategory">
+                        <option value="all">All</option>
+                        <option value="men">Men</option>
+                        <option value="women">Women</option>
+                        <option value="footwear">Footwear</option>
+                        <option value="accessories">Accessories</option>
+                    </select>
+                </div>
+                <div class="control">
+                    <label for="filterDiscount">Min Discount</label>
+                    <select id="filterDiscount">
+                        <option value="0">Any</option>
+                        <option value="20">20%+</option>
+                        <option value="30">30%+</option>
+                        <option value="40">40%+</option>
+                        <option value="50">50%+</option>
+                    </select>
+                </div>
+                <div class="control">
+                    <label for="sortBy">Sort</label>
+                    <select id="sortBy">
+                        <option value="popular">Popular</option>
+                        <option value="priceAsc">Price: Low to High</option>
+                        <option value="priceDesc">Price: High to Low</option>
+                        <option value="discountDesc">Best Discount</option>
+                    </select>
+                </div>
+            </div>
+            <div class="grid product-grid" id="trendingGrid">
+                <!-- Cards injected from script.js -->
+            </div>
+        </section>
+    </main>
+
+    <!-- Quick View Modal -->
+    <div class="modal" id="quickView" aria-hidden="true" role="dialog" aria-modal="true">
+        <div class="modal-backdrop" data-close-modal></div>
+        <div class="modal-content" role="document">
+            <button class="modal-close" aria-label="Close" data-close-modal>✕</button>
+            <div class="modal-body" id="modalBody"><!-- filled by JS --></div>
+        </div>
+    </div>
+
+    <footer class="footer">
+        <div class="container footer-grid">
+            <div>
+                <h4>Online Shopping</h4>
+                <ul>
+                    <li><a href="#">Men</a></li>
+                    <li><a href="#">Women</a></li>
+                    <li><a href="#">Kids</a></li>
+                    <li><a href="#">Home & Living</a></li>
+                    <li><a href="#">Beauty</a></li>
+                    <li><a href="#">Gift Cards</a></li>
+                </ul>
+            </div>
+            <div>
+                <h4>Customer Policies</h4>
+                <ul>
+                    <li><a href="#">Contact Us</a></li>
+                    <li><a href="#">FAQ</a></li>
+                    <li><a href="#">T&C</a></li>
+                    <li><a href="#">Terms Of Use</a></li>
+                    <li><a href="#">Privacy Policy</a></li>
+                </ul>
+            </div>
+            <div>
+                <h4>Experience Our App</h4>
+                <div class="app-badges">
+                    <a class="badge-store" href="#">App Store</a>
+                    <a class="badge-store" href="#">Google Play</a>
+                </div>
+                <div class="socials">
+                    <a href="#" aria-label="Instagram">📸</a>
+                    <a href="#" aria-label="Facebook">📘</a>
+                    <a href="#" aria-label="Twitter">🐦</a>
+                    <a href="#" aria-label="YouTube">▶️</a>
+                </div>
+            </div>
+            <div>
+                <h4>100% Original</h4>
+                <p>and authentic products guaranteed for all purchases.</p>
+                <h4>Return within 14 days</h4>
+                <p>of receiving your order.</p>
+            </div>
+        </div>
+        <div class="container footer-bottom">
+            <p>© <span id="year"></span> Myntra Clone. For educational purposes only.</p>
+        </div>
+    </footer>
+
+    <script src="./script.js"></script>
+</body>
+</html>
+
+
