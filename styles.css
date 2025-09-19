@@ -217,6 +217,8 @@ body {
 
 /* Wishlist modal specifics */
 #wishlistModal .modal-body { grid-template-columns: 1fr; }
+#wishlistModal .modal-content { max-height: 80vh; display: flex; flex-direction: column; }
+#wishlistModal .modal-body { overflow: auto; }
 .wishlist-header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .wishlist-list { display: grid; gap: 10px; }
 .wishlist-item { border: 1px solid var(--border); border-radius: 8px; padding: 10px; display: grid; gap: 8px; }
@@ -276,6 +278,30 @@ body {
 .badge-store { background: var(--text); color: #fff; padding: 8px 12px; border-radius: 6px; text-decoration: none; font-weight: 700; font-size: 12px; }
 .socials { display: flex; gap: 10px; font-size: 20px; }
 .footer-bottom { border-top: 1px solid var(--border); padding: 12px 0 24px; font-size: 13px; color: var(--muted); }
+
+/* Myna chatbot */
+#mynaToggle {
+  position: fixed; bottom: 20px; right: 20px;
+  width: 44px; height: 44px; border-radius: 999px;
+  border: 0; background: var(--brand); color: #fff;
+  font-size: 18px; cursor: pointer; z-index: 2100;
+  box-shadow: 0 8px 20px rgba(0,0,0,.18);
+}
+#mynaPanel {
+  position: fixed; bottom: 86px; right: 20px; width: min(360px, 92vw);
+  background: var(--bg); color: var(--text); border: 1px solid var(--border);
+  border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,.25);
+  display: grid; grid-template-rows: auto 1fr auto; overflow: hidden; z-index: 2100;
+}
+/* Respect [hidden] attribute for chat UI */
+#mynaPanel[hidden] { display: none !important; }
+#mynaToggle[hidden] { display: none !important; }
+.myna-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; background: var(--accent); border-bottom: 1px solid var(--border); }
+.myna-messages { padding: 10px; display: grid; gap: 8px; max-height: 50vh; overflow: auto; }
+.myna-form { display: flex; gap: 8px; padding: 10px; border-top: 1px solid var(--border); }
+.myna-msg { background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 13px; }
+.myna-msg.me { background: #eef6ff; border-color: #d1e6ff; justify-self: end; }
+.myna-action { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12px; white-space: pre-wrap; background: #0b1020; color: #e3f2fd; padding: 8px 10px; border-radius: 6px; }
 
 /* Responsive */
 @media (max-width: 1080px) {

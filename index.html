@@ -303,6 +303,20 @@
     <!-- Toasts -->
     <div id="toastContainer" aria-live="polite" aria-atomic="true"></div>
 
+    <!-- Myna Chatbot -->
+    <button id="mynaToggle" aria-label="Open Myna chat" title="Chat with Myna">💬</button>
+    <section id="mynaPanel" aria-label="Myna Chat" hidden>
+        <header class="myna-header">
+            <strong>Myna</strong>
+            <button id="mynaClose" aria-label="Close">✕</button>
+        </header>
+        <div id="mynaMessages" class="myna-messages" aria-live="polite"></div>
+        <form id="mynaForm" class="myna-form">
+            <input id="mynaInput" class="input" placeholder="Ask Myna… e.g. red dresses under 1500" autocomplete="off" />
+            <button class="btn-primary" type="submit">Send</button>
+        </form>
+    </section>
+
     <script src="https://meet.jit.si/external_api.js"></script>
     <script src="./script.js"></script>
 </body>
