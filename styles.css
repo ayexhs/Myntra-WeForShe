@@ -167,6 +167,10 @@ body {
 .product-grid { grid-template-columns: repeat(5, 1fr); margin-bottom: 40px; }
 .card { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: #fff; display: grid; }
 .card img { width: 100%; height: 220px; object-fit: cover; }
+.product-link { text-decoration: none; color: inherit; }
+.product-link:hover img { filter: brightness(.95); }
+.card-title.product-link { display: inline-block; }
+.card-title.product-link:hover { text-decoration: underline; }
 .card-body { padding: 10px 12px; display: grid; gap: 4px; }
 .card-brand { font-weight: 700; font-size: 14px; }
 .card-title { color: var(--muted); font-size: 12px; }
@@ -248,6 +252,15 @@ body {
 #pickerModal .modal-body { grid-template-columns: 1fr; }
 .picker-list { display: grid; gap: 8px; }
 .picker-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; }
+
+/* Friends modal */
+#friendsModal .modal-body { grid-template-columns: 1fr; }
+.friends-grid { display: grid; gap: 8px; }
+.friend-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; }
+.friend-form { display: grid; gap: 8px; }
+.friend-form .row { display: grid; gap: 6px; }
+
+/* (profile modal removed) */
 
 /* Toasts */
 #toastContainer { position: fixed; bottom: 16px; right: 16px; display: grid; gap: 8px; z-index: 2000; }

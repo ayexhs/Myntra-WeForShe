@@ -10,6 +10,9 @@ const state = {
   room: { id: '', name: '', contacts: [], api: null },
   // Multi-wishlist
   user: { id: '', name: '' },
+  friends: [], // array of {id, name, email}
+  friendRequests: [], // outgoing {id, name, email, token, status: 'sent'|'accepted'|'rejected'}
+  incomingRequests: [], // incoming {id, name, email, fromUserId, status: 'pending'|'accepted'|'rejected'}
   wishlists: [], // {id, name, ownerId, members: [userId], items: [{productId, size, note}]}
   contacts: [
     { id: 'u-aarav', name: 'Aarav', email: 'aarav@example.com' },
@@ -19,20 +22,21 @@ const state = {
     { id: 'u-rohan', name: 'Rohan', email: 'rohan@example.com' },
   ],
   channel: null,
+  friendRequests: [], // {id, name, email, token}
 };
 
 // Trending data (mock)
 const trendingProducts = [
-  { id: 1, brand: 'Roadster', title: 'Men Cotton Casual Shirt', price: 799, mrp: 1599, discount: 50, img: 'https://images.unsplash.com/photo-1521575107034-e0fa0b594529?q=80&w=800&auto=format&fit=crop', category: 'men' },
-  { id: 2, brand: 'H&M', title: 'Oversized Tee', price: 499, mrp: 999, discount: 50, img: 'https://images.unsplash.com/photo-1520975693413-c78b37a21c79?q=80&w=800&auto=format&fit=crop', category: 'men' },
-  { id: 3, brand: 'Puma', title: 'Running Shoes', price: 2199, mrp: 3999, discount: 45, img: 'https://images.unsplash.com/photo-1519744346363-66f7b52c4b04?q=80&w=800&auto=format&fit=crop', category: 'footwear' },
-  { id: 4, brand: 'MANGO', title: 'Women Floral Dress', price: 1899, mrp: 3299, discount: 42, img: 'https://images.unsplash.com/photo-1520975651327-4b8a2f2a4a80?q=80&w=800&auto=format&fit=crop', category: 'women' },
-  { id: 5, brand: 'Levi’s', title: '511 Slim Fit Jeans', price: 2499, mrp: 4199, discount: 40, img: 'https://images.unsplash.com/photo-1541099649105-f69ad21f3246?q=80&w=800&auto=format&fit=crop', category: 'men' },
-  { id: 6, brand: 'HRX', title: 'Training Joggers', price: 999, mrp: 1999, discount: 50, img: 'https://images.unsplash.com/photo-1520975403439-743d23976d2f?q=80&w=800&auto=format&fit=crop', category: 'men' },
-  { id: 7, brand: 'Anouk', title: 'Printed Kurta', price: 1299, mrp: 2299, discount: 43, img: 'https://images.unsplash.com/photo-1552346989-1a6a1b6b8dc1?q=80&w=800&auto=format&fit=crop', category: 'women' },
-  { id: 8, brand: 'WROGN', title: 'Casual Sneakers', price: 1499, mrp: 2999, discount: 50, img: 'https://images.unsplash.com/photo-1520975794856-6c1e0eac9b14?q=80&w=800&auto=format&fit=crop', category: 'footwear' },
-  { id: 9, brand: 'HERE&NOW', title: 'Printed Tee', price: 599, mrp: 1199, discount: 50, img: 'https://images.unsplash.com/photo-1512436991641-6745cdb1723f?q=80&w=800&auto=format&fit=crop', category: 'men' },
-  { id: 10, brand: 'DressBerry', title: 'Shoulder Bag', price: 1399, mrp: 2499, discount: 44, img: 'https://images.unsplash.com/photo-1548036328-c9fa89d128fa?q=80&w=800&auto=format&fit=crop', category: 'accessories' },
+  { id: 1, brand: 'Roadster', title: 'Men Cotton Casual Shirt', price: 799, mrp: 1599, discount: 50, img: 'static/Images/RoadsterShirt.jpeg', category: 'men' },
+  { id: 2, brand: 'H&M', title: 'Oversized Tee', price: 499, mrp: 999, discount: 50, img: './static/Images/OversizedTee.jpeg', category: 'men' },
+  { id: 3, brand: 'Puma', title: 'Running Shoes', price: 2199, mrp: 3999, discount: 45, img: './static/Images/PumaShoes.jpeg', category: 'footwear' },
+  { id: 4, brand: 'MANGO', title: 'Women Floral Dress', price: 1899, mrp: 3299, discount: 42, img: 'static/Images/FloralDress.jpeg', category: 'women' },
+  { id: 5, brand: 'Levi’s', title: '511 Slim Fit Jeans', price: 2499, mrp: 4199, discount: 40, img: 'static/Images/Jeans.jpeg', category: 'men' },
+  { id: 6, brand: 'HRX', title: 'Training Joggers', price: 999, mrp: 1999, discount: 50, img: 'static/Images/Jogger.jpeg', category: 'men' },
+  { id: 7, brand: 'Anouk', title: 'Printed Kurta', price: 1299, mrp: 2299, discount: 43, img: 'static/Images/Kurta.jpeg', category: 'women' },
+  { id: 8, brand: 'WROGN', title: 'Casual Sneakers', price: 1499, mrp: 2999, discount: 50, img: 'static/Images/Sneakers.jpeg', category: 'footwear' },
+  { id: 9, brand: 'HERE&NOW', title: 'Printed Tee', price: 599, mrp: 1199, discount: 50, img: 'static/Images/PrintedTee.jpeg', category: 'men' },
+  { id: 10, brand: 'DressBerry', title: 'Shoulder Bag', price: 1399, mrp: 2499, discount: 44, img: 'static/Images/Bag.jpeg', category: 'accessories' },
 ];
 
 function applyFilters(products) {
@@ -56,11 +60,13 @@ function renderTrending() {
   const list = applyFilters(trendingProducts);
   grid.innerHTML = list.map(p => `
     <article class="card" data-id="${p.id}">
-      <img src="${p.img}" alt="${p.brand} ${p.title}" data-quick-view>
-      <button class="heart ${state.wishlist.has(p.id) ? 'active' : ''}" data-toggle-wishlist data-id="${p.id}">🤍</button>
+      <a class="product-link" href="?p=${p.id}" data-product-link data-id="${p.id}">
+        <img src="${p.img}" alt="${p.brand} ${p.title}">
+      </a>
+      <button class="heart ${state.wishlist.has(p.id) ? 'active' : ''}" data-toggle-wishlist data-id="${p.id}">♥️</button>
       <div class="card-body">
         <div class="card-brand">${p.brand}</div>
-        <div class="card-title">${p.title}</div>
+        <a class="card-title product-link" href="?p=${p.id}" data-product-link data-id="${p.id}">${p.title}</a>
         <div class="price-row">
           <span class="price">₹${p.price}</span>
           <span class="mrp">₹${p.mrp}</span>
@@ -81,7 +87,10 @@ function saveState() {
   localStorage.setItem('myntra_wishlist', JSON.stringify(Array.from(state.wishlist)));
   localStorage.setItem('myntra_cart', JSON.stringify(state.cart));
   localStorage.setItem('myntra_user', JSON.stringify(state.user));
+  localStorage.setItem('myntra_friends', JSON.stringify(state.friends));
   localStorage.setItem('myntra_wishlists_v2', JSON.stringify(state.wishlists));
+  localStorage.setItem('myntra_friendRequests', JSON.stringify(state.friendRequests));
+  localStorage.setItem('myntra_incoming_requests', JSON.stringify(state.incomingRequests));
   // broadcast
   try { if (state.channel) state.channel.postMessage({ type: 'state:update' }); } catch {}
 }
@@ -98,13 +107,21 @@ function loadState() {
     state.cartCount = state.cart.length;
     const user = JSON.parse(localStorage.getItem('myntra_user') || 'null');
     if (user && user.id) state.user = user;
+    const friends = JSON.parse(localStorage.getItem('myntra_friends') || '[]');
+    state.friends = Array.isArray(friends) ? friends : [];
+    // profiles feature removed
     const lists = JSON.parse(localStorage.getItem('myntra_wishlists_v2') || '[]');
     state.wishlists = Array.isArray(lists) ? lists : [];
     // update badge: sum of items across lists
     try {
-      const totalItems = state.wishlists.reduce((sum, l) => sum + ((l.items||[]).length), 0);
-      state.wishlistCount = totalItems; // repurpose header badge to show items in multi-wishlist
+      const accessible = state.wishlists.filter(l => l.ownerId === state.user.id || (l.members||[]).includes(state.user.id));
+      const totalItems = accessible.reduce((sum, l) => sum + ((l.items||[]).length), 0);
+      state.wishlistCount = totalItems;
     } catch {}
+    const friendRequests = JSON.parse(localStorage.getItem('myntra_friendRequests') || '[]');
+    state.friendRequests = Array.isArray(friendRequests) ? friendRequests : [];
+    const incomingRequests = JSON.parse(localStorage.getItem('myntra_incoming_requests') || '[]');
+    state.incomingRequests = Array.isArray(incomingRequests) ? incomingRequests : [];
   } catch {}
 }
 
@@ -114,6 +131,16 @@ function setupCartWishlist() {
 
   document.body.addEventListener('click', (e) => {
     const target = e.target;
+    if (target && (target.matches('[data-product-link]') || target.closest('[data-product-link]'))) {
+      const el = target.closest('[data-product-link]') || target;
+      const id = Number(el.getAttribute('data-id'));
+      e.preventDefault();
+      const url = new URL(window.location.href);
+      url.searchParams.set('p', String(id));
+      window.history.pushState({}, '', url.toString());
+      openQuickView(id);
+      return;
+    }
     if (target && target.matches('[data-add-to-cart]')) {
       const id = Number(target.getAttribute('data-id'));
       state.cart.push(id);
@@ -225,6 +252,9 @@ function setupModal() {
     const target = e.target;
     if (target && target.hasAttribute('data-close-modal')) {
       modal.setAttribute('aria-hidden', 'true');
+      const url = new URL(window.location.href);
+      url.searchParams.delete('p');
+      window.history.pushState({}, '', url.toString());
     }
   });
 }
@@ -233,14 +263,21 @@ function setupModal() {
 function ensureUserProfile() {
   if (state.user && state.user.id) return;
   let name = '';
-  try { name = (localStorage.getItem('myntra_display_name') || '').trim(); } catch {}
-  if (!name) {
-    name = prompt('Enter display name');
-  }
+  let email = '';
+  try {
+    name = (localStorage.getItem('myntra_display_name') || '').trim();
+    email = (localStorage.getItem('myntra_email') || '').trim();
+  } catch {}
+  if (!name) { name = prompt('Enter your name') || ''; }
+  if (!email) { email = prompt('Enter your email') || ''; }
   name = (name || 'Guest').trim().slice(0, 40);
+  email = email.trim().toLowerCase();
   const id = 'u-' + Math.random().toString(36).slice(2, 10);
-  state.user = { id, name };
-  try { localStorage.setItem('myntra_display_name', name); } catch {}
+  state.user = { id, name, email };
+  try {
+    localStorage.setItem('myntra_display_name', name);
+    localStorage.setItem('myntra_email', email);
+  } catch {}
   document.getElementById('profileLabel').textContent = name;
   saveState();
 }
@@ -249,15 +286,152 @@ function setupProfileButton() {
   const btn = document.getElementById('profileButton');
   if (btn) {
     btn.addEventListener('click', () => {
-      const newName = prompt('Update display name', state.user.name || '');
-      if (newName && newName.trim()) {
-        state.user.name = newName.trim();
-        localStorage.setItem('myntra_display_name', state.user.name);
-        document.getElementById('profileLabel').textContent = state.user.name;
-        saveState();
-      }
+      openFriendsModal();
     });
   }
+}
+
+function openFriendsModal() {
+  const modal = document.getElementById('friendsModal');
+  const body = document.getElementById('friendsModalBody');
+  if (!modal || !body) return;
+  const all = [...state.friends];
+  body.innerHTML = `
+    <div style="display:grid; gap:12px;">
+      <div>
+        <label>Your friends</label>
+        <div class="friends-grid">
+          ${all.map(f => `
+            <div class="friend-row">
+              <div><strong>${f.name}</strong><div style="font-size:12px;opacity:.7">${f.email}</div></div>
+              <button class="btn-outline" data-remove-friend data-id="${f.id}">Remove</button>
+            </div>
+          `).join('') || '<em>No friends yet</em>'}
+        </div>
+      </div>
+      <div>
+        <label>Send a friend request</label>
+        <form class="friend-form" id="friendForm">
+          <div class="row">
+            <label>Name</label>
+            <input id="friendName" class="input" placeholder="Friend's name" required />
+          </div>
+          <div class="row">
+            <label>Email</label>
+            <input id="friendEmail" type="email" class="input" placeholder="friend@example.com" required />
+          </div>
+          <button class="btn-primary" type="submit">Send Request</button>
+        </form>
+      </div>
+      ${state.incomingRequests && state.incomingRequests.length ? `<div>
+        <label>Incoming requests</label>
+        <div class="friends-grid">
+          ${state.incomingRequests.map(r => `
+            <div class="friend-row">
+              <div><strong>${r.name}</strong><div style="font-size:12px;opacity:.7">${r.email}</div></div>
+              <div style="display:flex; gap:4px;">
+                <button class="btn-outline" data-accept-request data-id="${r.id}">Accept</button>
+                <button class="btn-outline" data-reject-request data-id="${r.id}">Reject</button>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>` : ''}
+      ${state.friendRequests && state.friendRequests.length ? `<div>
+        <label>Sent requests</label>
+        <div class="friends-grid">
+          ${state.friendRequests.map(r => `<div class=\"friend-row\"><div>${r.name} <small style=\"opacity:.7\">${r.email}</small></div><div><small>${r.status || 'Sent - waiting for reply'}</small></div></div>`).join('')}
+        </div>
+      </div>` : ''}
+    </div>
+  `;
+  modal.setAttribute('aria-hidden', 'false');
+
+  body.addEventListener('click', (e) => {
+    const t = e.target;
+    if (t && t.matches('[data-remove-friend]')) {
+      const id = t.getAttribute('data-id');
+      state.friends = state.friends.filter(f => f.id !== id);
+      saveState();
+      openFriendsModal();
+    }
+    if (t && t.matches('[data-accept-request]')) {
+      const id = t.getAttribute('data-id');
+      const req = state.incomingRequests.find(r => r.id === id);
+      if (req) {
+        // Add to friends
+        state.friends.push({ id: req.id, name: req.name, email: req.email });
+        // Update request status
+        req.status = 'accepted';
+        // Update sender's outgoing request status
+        const outgoingReq = state.friendRequests.find(r => r.email === req.email);
+        if (outgoingReq) outgoingReq.status = 'accepted';
+        // Remove from incoming
+        state.incomingRequests = state.incomingRequests.filter(r => r.id !== id);
+        saveState();
+        toast('Friend request accepted');
+        openFriendsModal();
+      }
+    }
+    if (t && t.matches('[data-reject-request]')) {
+      const id = t.getAttribute('data-id');
+      const req = state.incomingRequests.find(r => r.id === id);
+      if (req) {
+        // Update sender's outgoing request status
+        const outgoingReq = state.friendRequests.find(r => r.email === req.email);
+        if (outgoingReq) outgoingReq.status = 'rejected';
+        // Remove from incoming
+        state.incomingRequests = state.incomingRequests.filter(r => r.id !== id);
+        saveState();
+        toast('Friend request rejected');
+        openFriendsModal();
+      }
+    }
+  });
+
+  const form = body.querySelector('#friendForm');
+  if (form) {
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const name = body.querySelector('#friendName').value.trim();
+      const email = body.querySelector('#friendEmail').value.trim();
+      if (!name || !email) return;
+      
+      // Check if already friends
+      if (state.friends.some(f => f.email === email)) {
+        toast('Already friends with this person');
+        return;
+      }
+      
+      // Check if request already sent
+      if (state.friendRequests.some(r => r.email === email)) {
+        toast('Request already sent to this person');
+        return;
+      }
+      
+      // Create outgoing request
+      const token = 'fr-' + Math.random().toString(36).slice(2, 10);
+      const outgoingReq = { id: token, name, email, token, status: 'sent' };
+      state.friendRequests.push(outgoingReq);
+      
+      // Simulate sending to recipient's account (in real app, this would be server-side)
+      const incomingReq = { 
+        id: 'in-' + Math.random().toString(36).slice(2, 9), 
+        name: state.user.name, 
+        email: state.user.id + '@myntra.local', // simulated sender email
+        fromUserId: state.user.id, 
+        status: 'pending' 
+      };
+      state.incomingRequests.push(incomingReq);
+      
+      saveState();
+      toast('Friend request sent!');
+      form.reset();
+      openFriendsModal();
+    });
+  }
+
+  modal.addEventListener('click', (e) => { const t = e.target; if (t && t.hasAttribute('data-close-friends')) modal.setAttribute('aria-hidden','true'); });
 }
 
 // -------- Multi-Wishlist Model & UI --------
@@ -361,7 +535,8 @@ function openWishlistModal() {
 
 function refreshWishlistBadge() {
   const wishlistCountEl = document.getElementById('wishlistCount');
-  const totalItems = state.wishlists.reduce((sum, l) => sum + ((l.items||[]).length), 0);
+  const accessible = state.wishlists.filter(l => l.ownerId === state.user.id || (l.members||[]).includes(state.user.id));
+  const totalItems = accessible.reduce((sum, l) => sum + ((l.items||[]).length), 0);
   state.wishlistCount = totalItems;
   if (wishlistCountEl) wishlistCountEl.textContent = String(totalItems);
 }
@@ -409,9 +584,9 @@ function openShareModal(listId) {
           <input class="input" id="shareLink" value="${url.toString()}" readonly />
           <button class="btn-primary" id="copyShare">Copy</button>
         </div>
-        <label>Add members from contacts</label>
+        <label>Add members from friends</label>
         <div class="picker-list">
-          ${state.contacts.map(c => `
+          ${state.friends.map(c => `
             <div class="picker-row">
               <div>${c.name} <small style="opacity:.7">${c.email}</small></div>
               <button class="btn-outline" data-add-member data-uid="${c.id}">Add</button>
@@ -502,6 +677,7 @@ function setupWishlistModals() {
 function handleJoinLink() {
   const params = new URLSearchParams(window.location.search);
   const joinId = params.get('join');
+  const acceptFriendToken = params.get('acceptFriend');
   if (joinId) {
     const list = state.wishlists.find(l => l.id === joinId);
     if (list) {
@@ -511,6 +687,19 @@ function handleJoinLink() {
         upsertWishlist(list);
         toast('You joined "' + list.name + '"');
       }
+    }
+  }
+  if (acceptFriendToken) {
+    const name = decodeURIComponent(params.get('n') || '');
+    const email = decodeURIComponent(params.get('e') || '');
+    // Accept friend (legacy URL format)
+    const existing = state.friends.find(f => f.email === email);
+    if (!existing && email) {
+      state.friends.push({ id: 'f-' + Math.random().toString(36).slice(2,9), name: name || email, email });
+      // clear pending
+      state.friendRequests = (state.friendRequests||[]).filter(r => r.token !== acceptFriendToken);
+      saveState();
+      toast('Friend request accepted');
     }
   }
 }
@@ -601,9 +790,7 @@ function openRoomModal(prefill) {
   const modal = document.getElementById('roomModal');
   const body = document.getElementById('roomModalBody');
   if (!modal || !body) return;
-  const contacts = [
-    'Aarav', 'Vani', 'Ishita', 'Kiran', 'Rohan', 'Nisha', 'Meera', 'Rahul', 'Aisha', 'Kabir'
-  ];
+  const contacts = state.friends.length ? state.friends.map(f => f.name) : ['Friend 1','Friend 2'];
   const roomId = (prefill && prefill.roomId) || randomRoomId();
   const roomName = (prefill && prefill.roomName) || 'Shopping Room';
   const inviteUrl = new URL(window.location.href);
@@ -712,8 +899,12 @@ function setupRoomUX() {
   // Deep link join via ?room=xyz
   const params = new URLSearchParams(window.location.search);
   const roomId = params.get('room');
+  const productId = Number(params.get('p'));
   if (roomId) {
     startRoom(roomId, 'Shopping Room');
+  }
+  if (productId) {
+    openQuickView(productId);
   }
 }
 
