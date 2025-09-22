@@ -5,9 +5,17 @@ const state = {
   autoAdvanceMs: 5000,
   theme: 'light',
   wishlist: new Set(), // legacy single wishlist ids
-  cart: [],
+  cart: [], // legacy
+  cartV2: [], // [{ id: cid, productId, size:'', qty:1, forUser:{id,name,email} }]
   filters: { category: 'all', minDiscount: 0, sortBy: 'popular' },
   room: { id: '', name: '', contacts: [], api: null },
+  // Room-scoped shared cart state
+  roomCart: {
+    roomId: '',
+    items: [], // { productId, size:'', qty:1, addedBy:'userId', addedByName:'Name' }
+    split: { method: 'equal', custom: {} },
+    participants: {}
+  },
   // Multi-wishlist
   user: { id: '', name: '' },
   friends: [], // array of {id, name, email}
@@ -23,8 +31,726 @@ const state = {
     { id: 'u-rohan', name: 'Rohan', email: 'rohan@example.com' },
   ],
   channel: null,
-  friendRequests: [], // {id, name, email, token}
+  friendRequestsLegacy: [], // {id, name, email, token} (legacy; not used)
 };
+
+// Global friendly label resolver for any user id
+function resolveUserLabel(uid) {
+  if (!uid) return 'Member';
+  // User-defined label (manual override)
+  if (state.userLabels && state.userLabels[uid]) return state.userLabels[uid];
+  if (state.user && state.user.id === uid) return state.user.name || state.user.email || 'Me';
+  const fr = (state.friends||[]).find(f => f.id === uid);
+  if (fr) return fr.name || fr.email || ('Member ' + String(uid).slice(-4));
+  const contact = (state.contacts||[]).find(c => c.id === uid);
+  if (contact) return contact.name || contact.email || ('Member ' + String(uid).slice(-4));
+  // Scan all wishlists for any metadata about this uid
+  for (const wl of (state.wishlists||[])) {
+    if (wl && wl.ownerMeta && wl.ownerMeta.id === uid) return wl.ownerMeta.name || wl.ownerMeta.email || ('Member ' + String(uid).slice(-4));
+    const mm = (wl && wl.membersMeta || []).find(m => m.id === uid);
+    if (mm) return mm.name || mm.email || ('Member ' + String(uid).slice(-4));
+  }
+  // Fallback: avoid showing raw ids like u_abcd...; show generic member label
+  return /^u_[a-z0-9]+$/i.test(String(uid)) ? ('Member ' + String(uid).slice(-4)) : String(uid);
+}
+
+// Global helper to derive a stable user id from email (matches auth gate logic)
+function makeUserId(email) {
+  try {
+    const base = btoa(unescape(encodeURIComponent(String(email).toLowerCase()))).replace(/[^a-z0-9]/gi,'').slice(0,12);
+    return 'u_' + (base || Math.random().toString(36).slice(2, 10));
+  } catch {
+    return 'u_' + Math.random().toString(36).slice(2, 10);
+  }
+}
+
+// ----- Order math: subtotal, tax, shipping, per-person split -----
+function computeOrderCharges(lines) {
+  const TAX_RATE = 0.18; // 18% GST for demo
+  const subtotal = lines.reduce((s, l) => s + (l.product?.price || 0) * (l.qty || 1), 0);
+  const tax = Math.round(subtotal * TAX_RATE);
+  const shipping = subtotal >= 1500 ? 0 : (subtotal > 0 ? 99 : 0);
+  const total = subtotal + tax + shipping;
+  // Per person split based on forUser
+  const perItemSub = {};
+  const people = {};
+  lines.forEach(l => {
+    const uid = (l.forUser && l.forUser.id) || state.user.id;
+    const amt = (l.product?.price || 0) * (l.qty || 1);
+    perItemSub[uid] = (perItemSub[uid] || 0) + amt;
+    if (!people[uid]) people[uid] = l.forUser || { id: state.user.id, name: state.user.name, email: state.user.email };
+  });
+  const totalItemsSub = Object.values(perItemSub).reduce((a,b)=>a+b,0) || 0;
+  const perPerson = {};
+  if (totalItemsSub > 0) {
+    Object.entries(perItemSub).forEach(([uid, amt]) => {
+      const share = amt / totalItemsSub;
+      perPerson[uid] = Math.round(amt + tax * share + shipping * share);
+    });
+  }
+  return { subtotal, tax, shipping, total, perPerson, people };
+}
+
+// ----- Add to bag prompt (size + optional assignee) -----
+function openAddToBagPrompt(productId, options = {}) {
+  const modal = document.getElementById('pickerModal');
+  const body = document.getElementById('pickerModalBody');
+  if (!modal || !body) return;
+  const p = trendingProducts.find(x => x.id === productId);
+  const askAssignee = !!options.askAssignee;
+  const isFootwear = String(p?.category || '').toLowerCase() === 'footwear';
+  const sizeOpts = isFootwear ? ['UK 3','UK 4','UK 5','UK 6','UK 7','UK 8','UK 9','UK 10','UK 11','UK 12'] : ['XS','S','M','L','XL'];
+  // Helper to get a friendly label for a user id
+  function displayFor(uid, wl) {
+    if (!uid) return 'Member';
+    if (uid === state.user.id) return state.user.name || state.user.email || 'Me';
+    if (wl && wl.ownerMeta && wl.ownerMeta.id === uid) return wl.ownerMeta.name || wl.ownerMeta.email || uid;
+    if (wl && Array.isArray(wl.membersMeta)) {
+      const mm = wl.membersMeta.find(m => m.id === uid);
+      if (mm) return mm.name || mm.email || ('Member ' + String(uid).slice(-4));
+    }
+    const fr = state.friends.find(f => f.id === uid);
+    if (fr) return fr.name || fr.email || ('Member ' + String(uid).slice(-4));
+    // Fallback to contacts directory (seeded sample contacts)
+    const contact = (state.contacts || []).find(c => c.id === uid);
+    if (contact) return contact.name || contact.email || ('Member ' + String(uid).slice(-4));
+    // Try incoming shared invites to extract names
+    const inv = (state.incomingListInvites||[]).find(i => i && i.list && i.list.id === (wl && wl.id) && (i.from?.id === uid || i.toId === uid));
+    if (inv) return (inv.from && inv.from.id === uid && (inv.from.name || inv.from.email)) || inv.toName || ('Member ' + String(uid).slice(-4));
+    // Try friend requests lists
+    const outReq = (state.friendRequests||[]).find(r => r.id === uid);
+    if (outReq) return outReq.name || outReq.email || ('Member ' + String(uid).slice(-4));
+    const inReq = (state.incomingRequests||[]).find(r => r.fromUserId === uid || r.id === uid);
+    if (inReq) return inReq.name || inReq.email || ('Member ' + String(uid).slice(-4));
+    // Last fallback: global resolver
+    return resolveUserLabel(uid);
+  }
+  let assignees = [{ id: state.user.id, name: state.user.name || 'Me', email: state.user.email }];
+  if (options.fromListId) {
+    const wl = state.wishlists.find(l => l.id === options.fromListId);
+    if (wl) {
+      const map = new Map();
+      // 1) Owner first (with meta if present)
+      if (wl.ownerId) {
+        const label = (wl.ownerMeta && (wl.ownerMeta.name || wl.ownerMeta.email)) || displayFor(wl.ownerId, wl);
+        const pretty = /^u_[a-z0-9]+$/i.test(String(label)) ? ('Member ' + String(wl.ownerId).slice(-4)) : label;
+        const fr = state.friends.find(f => f.id === wl.ownerId);
+        map.set(wl.ownerId, {
+          id: wl.ownerId,
+          name: (fr && fr.name) || pretty,
+          email: (fr && fr.email) || (wl.ownerMeta && wl.ownerMeta.email) || '',
+          label: pretty
+        });
+      }
+      // 2) Members from membersMeta if available for names
+      (Array.isArray(wl.membersMeta) ? wl.membersMeta : []).forEach(m => {
+        if (!m || !m.id) return;
+        const pretty = /^u_[a-z0-9]+$/i.test(String(m.name||m.email||'')) ? ('Member ' + String(m.id).slice(-4)) : (m.name || m.email || displayFor(m.id, wl));
+        map.set(m.id, { id: m.id, name: m.name || pretty, email: m.email || '', label: pretty });
+      });
+      // 3) Any remaining member ids without meta
+      (Array.isArray(wl.members) ? wl.members : []).forEach(uid => {
+        if (!uid || map.has(uid)) return;
+        const label = displayFor(uid, wl);
+        const pretty = /^u_[a-z0-9]+$/i.test(String(label)) ? ('Member ' + String(uid).slice(-4)) : label;
+        const fr = state.friends.find(f => f.id === uid);
+        map.set(uid, { id: uid, name: (fr && fr.name) || pretty, email: (fr && fr.email) || '', label: pretty });
+      });
+      // 4) Ensure self present with nicest label
+      map.set(state.user.id, { id: state.user.id, name: state.user.name || resolveUserLabel(state.user.id), email: state.user.email, label: state.user.name || resolveUserLabel(state.user.id) });
+      assignees = Array.from(map.values()).sort((a,b) => (a.id === state.user.id ? -1 : b.id === state.user.id ? 1 : String(a.label||a.name||'').localeCompare(String(b.label||b.name||''))));
+    }
+  }
+  body.innerHTML = `
+    <div style="display:grid; gap:10px; width:100%">
+      <div style="display:flex; gap:12px; align-items:center;">
+        <img src="${p?.img || ''}" alt="" style="width:56px;height:56px;object-fit:cover;border-radius:8px;">
+        <div style="line-height:1.2">
+          <div style="font-weight:700">${p?.brand || ''}</div>
+          <div style="font-size:12px;opacity:.75">${p?.title || ''}</div>
+        </div>
+      </div>
+      <div style="display:flex; gap:16px; align-items:center; flex-wrap:wrap;">
+        <div style="display:flex; align-items:center; gap:8px; min-width:180px;">
+          <label>Size${isFootwear ? ' (UK)' : ''}</label>
+          <select id="bagSize" class="input" style="width:120px;">
+            <option value="">Select</option>
+            ${sizeOpts.map(opt => `<option value="${opt.replace('UK ','')}">${opt}</option>`).join('')}
+          </select>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px; min-width:140px;">
+          <label>Qty</label>
+          <input id="bagQty" type="number" class="input" style="width:72px;" value="1" min="1" />
+        </div>
+        ${askAssignee ? `
+        <div style="display:flex; align-items:center; gap:8px; min-width:220px; margin-left:auto;">
+          <label>For</label>
+          <select id="bagAssignee" class="input" style="width:200px;">
+            ${assignees.map(a => `<option value="${a.id}">${a.label || a.name || a.email || displayFor(a.id)}</option>`).join('')}
+          </select>
+        </div>
+        ` : ''}
+      </div>
+      <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:4px;">
+        <button class="btn-outline" data-close-picker>Cancel</button>
+        <button class="btn-primary" id="confirmAddToBag">Add to Bag</button>
+      </div>
+    </div>
+  `;
+  modal.setAttribute('aria-hidden','false');
+  setTimeout(() => {
+    const btn = body.querySelector('#confirmAddToBag');
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      const size = String(body.querySelector('#bagSize')?.value || '').trim();
+      const qty = Math.max(1, Number(body.querySelector('#bagQty')?.value || 1));
+      let forUser = { id: state.user.id, name: state.user.name, email: state.user.email };
+      if (askAssignee) {
+        const sel = body.querySelector('#bagAssignee');
+        const uid = sel ? sel.value : state.user.id;
+        if (uid === state.user.id) {
+          forUser = { id: state.user.id, name: state.user.name, email: state.user.email };
+        } else {
+          const fr = state.friends.find(f => f.id === uid);
+          if (fr) forUser = { id: fr.id, name: fr.name, email: fr.email };
+          else forUser = { id: uid, name: resolveUserLabel(uid), email: '' };
+        }
+      }
+      // Add to cartV2
+      const cid = 'c-' + Math.random().toString(36).slice(2, 9);
+      state.cartV2 = state.cartV2 || [];
+      state.cartV2.push({ id: cid, productId, size, qty, forUser });
+      state.cartCount = state.cartV2.reduce((s,l)=>s+(l.qty||1),0);
+      try { document.getElementById('cartCount').textContent = String(state.cartCount); } catch {}
+      saveState();
+      toast('Added to bag');
+      // close
+      const pm = document.getElementById('pickerModal');
+      if (pm) pm.setAttribute('aria-hidden','true');
+    });
+  }, 0);
+}
+
+
+// -------- Cart / Checkout UI --------
+function cartLines() {
+  // Prefer cartV2 if present
+  if (Array.isArray(state.cartV2) && state.cartV2.length) {
+    return state.cartV2.map(l => ({
+      id: l.productId,
+      product: trendingProducts.find(x => x.id === l.productId),
+      qty: l.qty || 1,
+      size: l.size || '',
+      forUser: l.forUser || null,
+      _cid: l.id || `${l.productId}|${l.size||''}|${l.forUser?.id||''}`
+    }));
+  }
+  // Fallback legacy
+  const counts = new Map();
+  for (const id of state.cart) counts.set(id, (counts.get(id) || 0) + 1);
+  const lines = [];
+  counts.forEach((qty, id) => {
+    const p = trendingProducts.find(x => x.id === id);
+    if (p) lines.push({ id, product: p, qty });
+  });
+  return lines;
+}
+
+// -------- Room Cart helpers --------
+function ensureRoomCartForCurrentRoom() {
+  if (!state.room || !state.room.id) return null;
+  if (!state.roomCart || state.roomCart.roomId !== state.room.id) {
+    state.roomCart = { roomId: state.room.id, items: [], split: { method: 'equal', custom: {} }, participants: {} };
+  }
+  // Ensure self as participant
+  const uid = state.user.id;
+  if (uid) {
+    state.roomCart.participants = state.roomCart.participants || {};
+    state.roomCart.participants[uid] = { id: uid, name: state.user.name, email: state.user.email };
+  }
+  return state.roomCart;
+}
+
+function roomCartBroadcast(payload) {
+  const rc = ensureRoomCartForCurrentRoom();
+  if (!rc) return;
+  sendSync('roomcart:event', Object.assign({ roomId: rc.roomId }, payload));
+  saveState();
+}
+
+function addToRoomCart(productId, size = '', qty = 1) {
+  const rc = ensureRoomCartForCurrentRoom();
+  if (!rc) { toast('Join a Room to use Room Cart'); return; }
+  rc.items = rc.items || [];
+  const addedBy = state.user.id;
+  const keyMatch = (it) => it.productId === productId && it.addedBy === addedBy && String(it.size||'') === String(size||'');
+  const existing = rc.items.find(keyMatch);
+  if (existing) {
+    existing.qty = Math.max(1, (existing.qty||1) + (qty||1));
+  } else {
+    rc.items.push({ productId, size: size||'', qty: Math.max(1, qty||1), addedBy, addedByName: state.user.name || 'Me' });
+  }
+  roomCartBroadcast({ type: 'roomcart:add', item: { productId, size: size||'', qty: Math.max(1, qty||1), addedBy, addedByName: state.user.name || 'Me' } });
+}
+
+function roomCartUpdateItem(productId, addedBy, changes) {
+  const rc = ensureRoomCartForCurrentRoom();
+  if (!rc) return;
+  rc.items = rc.items || [];
+  const it = rc.items.find(x => x.productId === productId && x.addedBy === addedBy);
+  if (!it) return;
+  if ('size' in changes) {
+    it.size = changes.size;
+  }
+  if ('qty' in changes) {
+    const delta = Number(changes.qty||0);
+    it.qty = Math.max(1, (it.qty||1) + delta);
+  }
+  if (changes.absolute) {
+    // already applied
+  }
+  roomCartBroadcast({ type: 'roomcart:update', productId, addedBy, changes: { size: it.size, qty: it.qty } });
+}
+
+function roomCartRemoveItem(productId, addedBy) {
+  const rc = ensureRoomCartForCurrentRoom();
+  if (!rc) return;
+  rc.items = (rc.items||[]).filter(x => !(x.productId === productId && x.addedBy === addedBy));
+  roomCartBroadcast({ type: 'roomcart:remove', productId, addedBy });
+}
+
+function roomCartSendSnapshot() {
+  const rc = ensureRoomCartForCurrentRoom();
+  if (!rc) return;
+  roomCartBroadcast({ type: 'roomcart:snapshot', snapshot: rc });
+}
+
+function formatINR(n) { try { return new Intl.NumberFormat('en-IN').format(n); } catch { return String(n); } }
+
+function openCartModal(step = 'cart') {
+  const modal = document.getElementById('cartModal');
+  const body = document.getElementById('cartModalBody');
+  if (!modal || !body) return;
+
+  const lines = cartLines();
+  const subtotal = lines.reduce((s, l) => s + l.product.price * l.qty, 0);
+  const mrpTotal = lines.reduce((s, l) => s + l.product.mrp * l.qty, 0);
+  const savings = Math.max(0, mrpTotal - subtotal);
+
+  const renderCartView = () => {
+    const container = document.getElementById('cartTabBody') || body;
+    container.innerHTML = `
+      <div style="display:grid; gap:12px; width:100%">
+        <h3>Your Bag</h3>
+        ${lines.length ? `
+          <div class="picker-list">
+            ${lines.map(l => `
+              <div class="picker-row" data-cart-line="${l._cid || l.id}">
+                <div style="display:flex; gap:10px; align-items:center;">
+                  <img src="${l.product.img}" alt="${l.product.brand} ${l.product.title}" style="width:48px;height:48px;object-fit:cover;border-radius:6px;">
+                  <div>
+                    <strong>${l.product.brand}</strong>
+                    <div style="font-size:12px;opacity:.8">${l.product.title}</div>
+                    ${l.size ? `<div style="font-size:12px;opacity:.8">Size: ${l.size}</div>` : ''}
+                    ${l.forUser ? (() => { const u=l.forUser||{}; const nm=String(u.name||''); const isUid=/^u_[a-z0-9]+$/i.test(nm); const label = (!nm || isUid) ? (u.email || resolveUserLabel(u.id)) : nm; return `<div style="font-size:12px;opacity:.8">For: ${label}</div>`; })() : ''}
+                    <div class="price-row" style="margin-top:4px;">
+                      <span class="price">₹${formatINR(l.product.price)}</span>
+                      <span class="mrp">₹${formatINR(l.product.mrp)}</span>
+                      <span class="discount">${l.product.discount}% OFF</span>
+                    </div>
+                  </div>
+                </div>
+                <div style="display:flex; gap:8px; align-items:center;">
+                  <button class="btn-outline" data-cart-dec ${l._cid?`data-cid="${l._cid}"`:''} data-id="${l.id}">-</button>
+                  <span aria-label="Quantity">${l.qty}</span>
+                  <button class="btn-outline" data-cart-inc ${l._cid?`data-cid="${l._cid}"`:''} data-id="${l.id}">+</button>
+                  <button class="btn-outline" data-cart-remove ${l._cid?`data-cid="${l._cid}"`:''} data-id="${l.id}">Remove</button>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+          <div class="wishlist-row" style="justify-content:space-between;">
+            <div>
+              <div><strong>Subtotal:</strong> ₹${formatINR(subtotal)}</div>
+              ${savings ? `<small style="opacity:.8">You save ₹${formatINR(savings)}</small>` : ''}
+            </div>
+            <button class="btn-primary" data-checkout>Proceed to Checkout</button>
+          </div>
+        ` : `<em>Your bag is empty.</em>`}
+      </div>
+    `;
+  };
+
+  const renderCheckoutView = () => {
+    const order = computeOrderCharges(lines);
+    const container = document.getElementById('cartTabBody') || body;
+    container.innerHTML = `
+      <div style="display:grid; gap:12px; width:100%">
+        <h3>Checkout</h3>
+        <div class="wishlist-row" style="justify-content:space-between;">
+          <div>
+            <div><strong>Items:</strong> ${lines.reduce((s,l)=>s+(l.qty||1),0)}</div>
+            <div><strong>Subtotal:</strong> ₹${formatINR(order.subtotal)}</div>
+            <div><strong>Tax (18%):</strong> ₹${formatINR(order.tax)}</div>
+            <div><strong>Shipping:</strong> ₹${formatINR(order.shipping)}</div>
+            <div><strong>Total Payable:</strong> ₹${formatINR(order.total)}</div>
+          </div>
+          <button class="btn-outline" data-back-to-cart>Back</button>
+        </div>
+        ${Object.keys(order.perPerson).length ? `
+        <div>
+          <label>Per-person totals</label>
+          <div class="picker-list">
+            ${Object.entries(order.perPerson).map(([uid, amt]) => `
+              <div class="picker-row"><div>${order.people[uid]?.name || resolveUserLabel(uid)}</div><div>₹${formatINR(amt)}</div></div>
+            `).join('')}
+          </div>
+        </div>` : ''}
+        <form id="checkoutForm" class="friend-form" style="display:grid; gap:10px;">
+          <div class="row">
+            <label>Name</label>
+            <input id="coName" class="input" placeholder="Your full name" required value="${state.user.name || ''}" />
+          </div>
+          <div class="row">
+            <label>Email</label>
+            <input id="coEmail" type="email" class="input" placeholder="you@example.com" required value="${state.user.email || ''}" />
+          </div>
+          <div class="row">
+            <label>Address</label>
+            <textarea id="coAddr" class="input" placeholder="Shipping address" required rows="3"></textarea>
+          </div>
+          <div class="row">
+            <label>Payment</label>
+            <select id="coPay" class="input">
+              <option value="cod">Cash on Delivery</option>
+              <option value="card">Credit/Debit Card</option>
+              <option value="upi">UPI</option>
+            </select>
+          </div>
+          <button class="btn-primary" type="submit">Place Order</button>
+        </form>
+      </div>
+    `;
+  };
+
+  // ----- Room Cart helpers -----
+  function roomCartSubtotal(rc) {
+    return (rc.items||[]).reduce((sum, it) => {
+      const p = trendingProducts.find(x => x.id === it.productId);
+      return sum + (p ? (p.price * (it.qty||1)) : 0);
+    }, 0);
+  }
+  function roomCartLines(rc) {
+    return (rc.items||[]).map(it => {
+      const p = trendingProducts.find(x => x.id === it.productId) || null;
+      return { ...it, product: p };
+    });
+  }
+  function computeParticipants(rc) {
+    const map = Object.assign({}, rc.participants);
+    // ensure self exists if contributed
+    (rc.items||[]).forEach(it => {
+      const uid = it.addedBy;
+      if (uid && !map[uid]) {
+        // Best-effort name from item
+        map[uid] = { id: uid, name: it.addedByName || 'Member', email: '' };
+      }
+    });
+    if (state.user && state.user.id) map[state.user.id] = { id: state.user.id, name: state.user.name, email: state.user.email };
+    return map;
+  }
+  function computeSplit(rc) {
+    const total = roomCartSubtotal(rc);
+    const participants = computeParticipants(rc);
+    const ids = Object.keys(participants);
+    const result = {};
+    if (!ids.length || total <= 0) return { total, shares: result, participants };
+    if (rc.split && rc.split.method === 'byItems') {
+      // Sum by who added what
+      const sums = {};
+      (rc.items||[]).forEach(it => {
+        const p = trendingProducts.find(x => x.id === it.productId);
+        if (!p) return;
+        const amt = p.price * (it.qty||1);
+        sums[it.addedBy] = (sums[it.addedBy]||0) + amt;
+      });
+      ids.forEach(id => { result[id] = sums[id] || 0; });
+    } else if (rc.split && rc.split.method === 'custom') {
+      // custom percentages (0..100) or absolute shares; normalize to total
+      const weights = ids.map(id => Math.max(0, Number(rc.split.custom?.[id] || 0)));
+      const sumW = weights.reduce((a,b)=>a+b,0) || ids.length;
+      ids.forEach((id, i) => { result[id] = Math.round((total * (weights[i] || (sumW ? (1) : 1))) / sumW); });
+    } else {
+      // equal split
+      const each = Math.round(total / ids.length);
+      ids.forEach(id => { result[id] = each; });
+    }
+    return { total, shares: result, participants };
+  }
+  function exportRoomRecap(rc) {
+    const lines = roomCartLines(rc);
+    const split = computeSplit(rc);
+    const header = `Room Cart Recap - ${state.room.name || state.room.id}`;
+    const itemsStr = lines.map(l => {
+      const title = l.product ? (l.product.brand + ' ' + l.product.title) : ('#' + l.productId);
+      const price = l.product ? l.product.price : 0;
+      return `- ${title} x${l.qty||1} @ ₹${formatINR(price)} by ${l.addedByName||l.addedBy}`;
+    }).join('\n');
+    const totalsStr = Object.entries(split.shares).map(([uid, amt]) => {
+      const name = split.participants[uid]?.name || uid;
+      return `- ${name}: ₹${formatINR(amt)}`;
+    }).join('\n');
+    const text = `${header}\n\nItems:\n${itemsStr}\n\nSplit (${state.roomCart.split.method}):\n${totalsStr}\n\nTotal: ₹${formatINR(split.total)}`;
+    return text;
+  }
+  function renderRoomCartView() {
+    const rc = state.roomCart && state.roomCart.roomId === state.room.id ? state.roomCart : { roomId: state.room.id, items: [], split: { method: 'equal', custom: {} }, participants: {} };
+    const lines = roomCartLines(rc);
+    const split = computeSplit(rc);
+    const container = document.getElementById('cartTabBody') || body;
+    container.innerHTML = `
+      <div style="display:grid; gap:12px; width:100%">
+        <div class="wishlist-row" style="justify-content:space-between; align-items:center;">
+          <h3>Room Cart · ${state.room.name || state.room.id}</h3>
+          <div style="display:flex; gap:8px;">
+            <select id="roomSplitMethod" class="input">
+              <option value="equal" ${rc.split.method==='equal'?'selected':''}>Split equally</option>
+              <option value="byItems" ${rc.split.method==='byItems'?'selected':''}>Each pays their items</option>
+              <option value="custom" ${rc.split.method==='custom'?'selected':''}>Custom split</option>
+            </select>
+            <button class="btn-outline" id="roomExportRecap">Export Recap</button>
+          </div>
+        </div>
+        ${lines.length ? `
+          <div class="picker-list">
+            ${lines.map(l => `
+              <div class="picker-row" data-room-line="${l.productId}" data-addedby="${l.addedBy}">
+                <div style="display:flex; gap:10px; align-items:center;">
+                  <img src="${l.product?.img || ''}" alt="" style="width:48px;height:48px;object-fit:cover;border-radius:6px;">
+                  <div>
+                    <strong>${l.product ? l.product.brand : ''}</strong>
+                    <div style="font-size:12px;opacity:.8">${l.product ? l.product.title : ('#'+l.productId)}</div>
+                    <div class="price-row" style="margin-top:4px;">
+                      <span class="price">₹${formatINR(l.product?.price || 0)}</span>
+                      ${l.product ? `<span class="mrp">₹${formatINR(l.product.mrp)}</span><span class="discount">${l.product.discount}% OFF</span>` : ''}
+                    </div>
+                    <small>by ${l.addedByName || l.addedBy}</small>
+                  </div>
+                </div>
+                <div style="display:flex; gap:8px; align-items:center;">
+                  <label style="font-size:12px;">Size</label>
+                  <input class="input" style="width:70px" value="${l.size||''}" data-room-size data-id="${l.productId}" data-addedby="${l.addedBy}">
+                  <button class="btn-outline" data-room-dec data-id="${l.productId}" data-addedby="${l.addedBy}">-</button>
+                  <span aria-label="Quantity">${l.qty||1}</span>
+                  <button class="btn-outline" data-room-inc data-id="${l.productId}" data-addedby="${l.addedBy}">+</button>
+                  <button class="btn-outline" data-room-remove data-id="${l.productId}" data-addedby="${l.addedBy}">Remove</button>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+          <div class="wishlist-row" style="justify-content:space-between;">
+            <div>
+              <div><strong>Total:</strong> ₹${formatINR(split.total)}</div>
+              <div style="font-size:12px;opacity:.85">${Object.keys(split.participants).length} participant(s)</div>
+            </div>
+            <button class="btn-outline" data-back-to-cart>Back</button>
+          </div>
+          <div style="display:grid; gap:8px;">
+            <label>Per-person totals</label>
+            <div class="picker-list">
+              ${Object.entries(split.shares).map(([uid, amt]) => `
+                <div class="picker-row">
+                  <div>${split.participants[uid]?.name || resolveUserLabel(uid)}</div>
+                  ${rc.split.method==='custom' ? `<input class="input" style="width:90px" data-custom-share data-uid="${uid}" value="${Number(rc.split.custom?.[uid]||0)}" />` : ''}
+                  <div>₹${formatINR(amt)}</div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        ` : `<em>No items in room cart yet.</em>`}
+      </div>
+    `;
+  }
+
+  // Tabs when in room
+  if (state.room && state.room.id) {
+    body.innerHTML = `
+      <div style="display:grid; gap:10px;">
+        <div class="wishlist-row" style="justify-content:flex-start; gap:8px;">
+          <button class="btn-outline" data-tab="cart" ${step==='cart'?'disabled':''}>My Bag</button>
+          <button class="btn-outline" data-tab="roomcart" ${step==='roomcart'?'disabled':''}>Room Cart</button>
+        </div>
+        <div id="cartTabBody"></div>
+      </div>
+    `;
+    const tabBody = body.querySelector('#cartTabBody');
+    function renderTab() {
+      if (step === 'checkout') { renderCheckoutView(); return; }
+      if (step === 'roomcart') { renderRoomCartView(); return; }
+      renderCartView();
+    }
+    // render initial
+    renderTab();
+    // delegate tab switching
+    body.addEventListener('click', (e) => {
+      const t = e.target;
+      if (t && t.matches('[data-tab]')) {
+        step = t.getAttribute('data-tab');
+        openCartModal(step);
+      }
+    });
+  } else {
+    if (step === 'checkout') renderCheckoutView(); else renderCartView();
+  }
+  modal.setAttribute('aria-hidden', 'false');
+
+  // bind interactions
+  body.onclick = (e) => {
+    const t = e.target;
+    if (!t) return;
+    if (t.matches('[data-cart-inc]')) {
+      const cid = t.getAttribute('data-cid');
+      if (cid && Array.isArray(state.cartV2) && state.cartV2.length) {
+        const it = state.cartV2.find(x => (x.id || `${x.productId}|${x.size||''}|${x.forUser?.id||''}`) === cid);
+        if (it) it.qty = (it.qty||1) + 1;
+        state.cartCount = state.cartV2.reduce((s,l)=>s+(l.qty||1),0);
+      } else {
+        const id = Number(t.getAttribute('data-id'));
+        state.cart.push(id);
+        state.cartCount = state.cart.length;
+      }
+      document.getElementById('cartCount').textContent = String(state.cartCount);
+      saveState();
+      openCartModal('cart');
+    }
+    if (t.matches('[data-cart-dec]')) {
+      const cid = t.getAttribute('data-cid');
+      if (cid && Array.isArray(state.cartV2) && state.cartV2.length) {
+        const it = state.cartV2.find(x => (x.id || `${x.productId}|${x.size||''}|${x.forUser?.id||''}`) === cid);
+        if (it) it.qty = Math.max(1, (it.qty||1) - 1);
+        state.cartCount = state.cartV2.reduce((s,l)=>s+(l.qty||1),0);
+      } else {
+        const id = Number(t.getAttribute('data-id'));
+        const idx = state.cart.findIndex(x => x === id);
+        if (idx >= 0) state.cart.splice(idx, 1);
+        state.cartCount = state.cart.length;
+      }
+      document.getElementById('cartCount').textContent = String(state.cartCount);
+      saveState();
+      openCartModal('cart');
+    }
+    if (t.matches('[data-cart-remove]')) {
+      const cid = t.getAttribute('data-cid');
+      if (cid && Array.isArray(state.cartV2) && state.cartV2.length) {
+        state.cartV2 = state.cartV2.filter(x => (x.id || `${x.productId}|${x.size||''}|${x.forUser?.id||''}`) !== cid);
+        state.cartCount = state.cartV2.reduce((s,l)=>s+(l.qty||1),0);
+      } else {
+        const id = Number(t.getAttribute('data-id'));
+        state.cart = state.cart.filter(x => x !== id);
+        state.cartCount = state.cart.length;
+      }
+      document.getElementById('cartCount').textContent = String(state.cartCount);
+      saveState();
+      openCartModal('cart');
+    }
+    if (t.matches('[data-checkout]')) {
+      openCartModal('checkout');
+    }
+    if (t.matches('[data-back-to-cart]')) {
+      openCartModal('cart');
+    }
+    // Room cart interactions
+    if (t.matches('[data-room-inc]')) {
+      const id = Number(t.getAttribute('data-id'));
+      const by = t.getAttribute('data-addedby') || state.user.id;
+      roomCartUpdateItem(id, by, { qty: +1 });
+      openCartModal('roomcart');
+    }
+    if (t.matches('[data-room-dec]')) {
+      const id = Number(t.getAttribute('data-id'));
+      const by = t.getAttribute('data-addedby') || state.user.id;
+      roomCartUpdateItem(id, by, { qty: -1 });
+      openCartModal('roomcart');
+    }
+    if (t.matches('[data-room-remove]')) {
+      const id = Number(t.getAttribute('data-id'));
+      const by = t.getAttribute('data-addedby') || state.user.id;
+      roomCartRemoveItem(id, by);
+      openCartModal('roomcart');
+    }
+  };
+
+  const form = () => body.querySelector('#checkoutForm');
+  setTimeout(() => {
+    const f = form();
+    if (f) {
+      f.addEventListener('submit', (ev) => {
+        ev.preventDefault();
+        // simulate order placement
+        const orderId = 'ORD-' + Math.random().toString(36).slice(2, 8).toUpperCase();
+        // clear cart
+        state.cart = [];
+        state.cartV2 = [];
+        state.cartCount = 0;
+        document.getElementById('cartCount').textContent = '0';
+        saveState();
+        body.innerHTML = `
+          <div style="display:grid; gap:12px; width:100%">
+            <h3>Order Placed</h3>
+            <p>Thank you! Your order <strong>${orderId}</strong> has been placed successfully.</p>
+            <button class="btn-primary" data-close-cart>Done</button>
+          </div>`;
+      });
+    }
+    // Split controls, size inputs, export
+    try {
+      const methodSel = document.getElementById('roomSplitMethod');
+      if (methodSel) methodSel.addEventListener('change', (ev) => {
+        const v = ev.target.value;
+        state.roomCart.split.method = v;
+        roomCartBroadcast({ type: 'roomcart:split', split: state.roomCart.split });
+        openCartModal('roomcart');
+      });
+      document.querySelectorAll('[data-custom-share]')?.forEach(inp => {
+        inp.addEventListener('change', (ev) => {
+          const uid = ev.target.getAttribute('data-uid');
+          const val = Number(ev.target.value || 0);
+          if (!state.roomCart.split.custom) state.roomCart.split.custom = {};
+          state.roomCart.split.custom[uid] = val;
+          roomCartBroadcast({ type: 'roomcart:split', split: state.roomCart.split });
+          openCartModal('roomcart');
+        });
+      });
+      document.querySelectorAll('[data-room-size]')?.forEach(inp => {
+        inp.addEventListener('change', (ev) => {
+          const pid = Number(ev.target.getAttribute('data-id'));
+          const by = ev.target.getAttribute('data-addedby') || state.user.id;
+          const size = String(ev.target.value||'');
+          roomCartUpdateItem(pid, by, { size, absolute: true });
+        });
+      });
+      const exportBtn = document.getElementById('roomExportRecap');
+      if (exportBtn) exportBtn.addEventListener('click', async () => {
+        const txt = exportRoomRecap(state.roomCart);
+        try { await navigator.clipboard.writeText(txt); toast('Recap copied'); } catch {}
+        // also trigger a download
+        const blob = new Blob([txt], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = `room-cart-${state.room.id}.txt`;
+        document.body.appendChild(a); a.click(); a.remove();
+        URL.revokeObjectURL(url);
+      });
+    } catch {}
+  }, 0);
+}
+
+function setupCartUI() {
+  const openBtn = document.getElementById('openCart');
+  const cartModal = document.getElementById('cartModal');
+  if (openBtn) openBtn.addEventListener('click', () => openCartModal('cart'));
+  if (cartModal) cartModal.addEventListener('click', (e) => { const t = e.target; if (t && t.hasAttribute('data-close-cart')) cartModal.setAttribute('aria-hidden','true'); });
+}
 
 // Trending data (mock)
 const trendingProducts = [
@@ -78,6 +804,7 @@ function renderTrending() {
         <button class="btn-outline" data-add-to-cart data-id="${p.id}">Add to Bag</button>
         <button class="btn-outline" data-quick-view data-id="${p.id}">Quick View</button>
         <button class="btn-outline" data-add-to-wishlist data-id="${p.id}">Add to Wishlist</button>
+        ${state.room && state.room.id ? `<button class="btn-outline" data-add-to-roomcart data-id="${p.id}">Add to Room Cart</button>` : ''}
       </div>
     </article>
   `).join('');
@@ -87,12 +814,15 @@ function saveState() {
   localStorage.setItem('myntra_theme', state.theme);
   localStorage.setItem('myntra_wishlist', JSON.stringify(Array.from(state.wishlist)));
   localStorage.setItem('myntra_cart', JSON.stringify(state.cart));
+  try { localStorage.setItem('myntra_cart_v2', JSON.stringify(state.cartV2 || [])); } catch {}
   localStorage.setItem('myntra_user', JSON.stringify(state.user));
   localStorage.setItem('myntra_friends', JSON.stringify(state.friends));
   localStorage.setItem('myntra_wishlists_v2', JSON.stringify(state.wishlists));
   localStorage.setItem('myntra_wishlist_invites', JSON.stringify(state.incomingListInvites));
   localStorage.setItem('myntra_friendRequests', JSON.stringify(state.friendRequests));
   localStorage.setItem('myntra_incoming_requests', JSON.stringify(state.incomingRequests));
+  try { localStorage.setItem('myntra_roomcart', JSON.stringify(state.roomCart || {})); } catch {}
+  try { localStorage.setItem('myntra_user_labels', JSON.stringify(state.userLabels || {})); } catch {}
   // broadcast
   try { if (state.channel) state.channel.postMessage({ type: 'state:update' }); } catch {}
 }
@@ -105,6 +835,25 @@ function loadState() {
     state.wishlist = new Set(wl);
     const cart = JSON.parse(localStorage.getItem('myntra_cart') || '[]');
     state.cart = cart;
+    try {
+      const cartV2 = JSON.parse(localStorage.getItem('myntra_cart_v2') || '[]');
+      if (Array.isArray(cartV2) && cartV2.length) state.cartV2 = cartV2;
+      // migrate legacy to v2 once
+      if ((!state.cartV2 || !state.cartV2.length) && Array.isArray(cart) && cart.length) {
+        state.cartV2 = cart.map(pid => ({ id: 'c-'+Math.random().toString(36).slice(2,9), productId: pid, size: '', qty: 1, forUser: { id: state.user.id, name: state.user.name, email: state.user.email } }));
+        state.cart = [];
+      }
+      // normalize forUser labels so raw IDs never show
+      try {
+        state.cartV2 = (state.cartV2 || []).map(it => {
+          const u = it.forUser || { id: state.user.id, name: state.user.name, email: state.user.email };
+          const nm = String(u.name || '');
+          const looksLikeUid = /^u_[a-z0-9]+$/i.test(nm);
+          const friendly = (!nm || looksLikeUid) ? (u.email || resolveUserLabel(u.id)) : nm;
+          return Object.assign({}, it, { forUser: { id: u.id, name: friendly, email: u.email || '' } });
+        });
+      } catch {}
+    } catch {}
     state.wishlistCount = state.wishlist.size;
     state.cartCount = state.cart.length;
     const user = JSON.parse(localStorage.getItem('myntra_user') || 'null');
@@ -114,8 +863,38 @@ function loadState() {
     // profiles feature removed
     const lists = JSON.parse(localStorage.getItem('myntra_wishlists_v2') || '[]');
     state.wishlists = Array.isArray(lists) ? lists : [];
+    // Backfill ownerMeta / membersMeta for all lists so names render nicely
+    try {
+      state.wishlists = state.wishlists.map(l => {
+        const list = Object.assign({}, l);
+        // ownerMeta
+        if (!list.ownerMeta && list.ownerId) {
+          if (list.ownerId === state.user.id) {
+            list.ownerMeta = { id: state.user.id, name: state.user.name, email: state.user.email };
+          } else {
+            const fr = state.friends.find(f => f.id === list.ownerId) || (state.contacts||[]).find(c => c.id === list.ownerId);
+            list.ownerMeta = fr ? { id: fr.id, name: fr.name, email: fr.email } : { id: list.ownerId, name: '', email: '' };
+          }
+        }
+        // membersMeta
+        const membersIds = Array.isArray(list.members) ? list.members : [];
+        const meta = Array.isArray(list.membersMeta) ? list.membersMeta.slice() : [];
+        membersIds.forEach(mid => {
+          if (!meta.some(m => m.id === mid)) {
+            if (mid === state.user.id) meta.push({ id: state.user.id, name: state.user.name, email: state.user.email });
+            else {
+              const fr = state.friends.find(f => f.id === mid) || (state.contacts||[]).find(c => c.id === mid);
+              meta.push({ id: mid, name: fr ? (fr.name || fr.email || '') : '', email: fr ? (fr.email || '') : '' });
+            }
+          }
+        });
+        list.membersMeta = meta;
+        return list;
+      });
+    } catch {}
     const wlInvites = JSON.parse(localStorage.getItem('myntra_wishlist_invites') || '[]');
     state.incomingListInvites = Array.isArray(wlInvites) ? wlInvites : [];
+    try { state.userLabels = JSON.parse(localStorage.getItem('myntra_user_labels') || '{}') || {}; } catch { state.userLabels = {}; }
     // update badge: sum of items across lists
     try {
       const accessible = state.wishlists.filter(l => l.ownerId === state.user.id || (l.members||[]).includes(state.user.id));
@@ -126,6 +905,10 @@ function loadState() {
     state.friendRequests = Array.isArray(friendRequests) ? friendRequests : [];
     const incomingRequests = JSON.parse(localStorage.getItem('myntra_incoming_requests') || '[]');
     state.incomingRequests = Array.isArray(incomingRequests) ? incomingRequests : [];
+    try {
+      const rc = JSON.parse(localStorage.getItem('myntra_roomcart') || 'null');
+      if (rc && typeof rc === 'object') state.roomCart = rc;
+    } catch {}
   } catch {}
 }
 
@@ -147,14 +930,16 @@ function setupCartWishlist() {
     }
     if (target && target.matches('[data-add-to-cart]')) {
       const id = Number(target.getAttribute('data-id'));
-      state.cart.push(id);
-      state.cartCount = state.cart.length;
-      cartCountEl.textContent = String(state.cartCount);
-      saveState();
+      openAddToBagPrompt(id, { askAssignee: false });
     }
     if (target && target.matches('[data-add-to-wishlist]')) {
       const id = Number(target.getAttribute('data-id'));
       openPickerModal(id);
+    }
+    if (target && target.matches('[data-add-to-roomcart]')) {
+      const id = Number(target.getAttribute('data-id'));
+      addToRoomCart(id, '', 1);
+      toast('Added to room cart');
     }
     if (target && target.matches('[data-toggle-wishlist]')) {
       const id = Number(target.getAttribute('data-id'));
@@ -244,6 +1029,7 @@ function openQuickView(id) {
       <div class="modal-actions">
         <button class="btn-primary" data-add-to-cart data-id="${p.id}">Add to Bag</button>
         <button class="btn-outline" data-toggle-wishlist data-id="${p.id}">${state.wishlist.has(p.id) ? 'Remove Wishlist' : 'Add Wishlist'}</button>
+        ${state.room && state.room.id ? `<button class="btn-outline" data-add-to-roomcart data-id="${p.id}">Add to Room Cart</button>` : ''}
       </div>
     </div>`;
   modal.setAttribute('aria-hidden', 'false');
@@ -456,6 +1242,21 @@ function getUserLists() {
 }
 
 function upsertWishlist(list) {
+  // Ensure ownerMeta and membersMeta present with names/emails
+  try {
+    if (!list.ownerMeta && list.ownerId) {
+      const fr = state.friends.find(f => f.id === list.ownerId);
+      list.ownerMeta = fr ? { id: fr.id, name: fr.name, email: fr.email } : { id: list.ownerId, name: '', email: '' };
+    }
+    const membersIds = Array.isArray(list.members) ? list.members : [];
+    list.membersMeta = Array.isArray(list.membersMeta) ? list.membersMeta : [];
+    membersIds.forEach(mid => {
+      if (!list.membersMeta.some(m => m.id === mid)) {
+        const fr = state.friends.find(f => f.id === mid) || (state.contacts||[]).find(c => c.id === mid) || null;
+        list.membersMeta.push({ id: mid, name: fr ? (fr.name || fr.email || '') : '', email: fr ? (fr.email || '') : '' });
+      }
+    });
+  } catch {}
   const idx = state.wishlists.findIndex(l => l.id === list.id);
   if (idx >= 0) state.wishlists[idx] = list; else state.wishlists.push(list);
   saveState();
@@ -493,6 +1294,32 @@ function openWishlistModal() {
   const body = document.getElementById('wishlistModalBody');
   if (!modal || !body) return;
   const lists = getUserLists();
+  // De-duplicate incoming shared wishlist invites by (listId, senderId/email)
+  const invitesUnique = Array.isArray(state.incomingListInvites)
+    ? (() => {
+        const seen = new Set();
+        return state.incomingListInvites
+          // Hide invites where I'm already the owner or a member
+          .filter((inv) => {
+            try {
+              const lid = inv && inv.list && inv.list.id;
+              const l = lid && state.wishlists.find(x => x.id === lid);
+              const isOwner = l ? (l.ownerId === state.user.id) : (inv && inv.list && inv.list.ownerId === state.user.id);
+              const isMember = l ? ((l.members||[]).includes(state.user.id)) : ((inv && inv.list && (inv.list.members||[]).includes(state.user.id)));
+              return !(isOwner || isMember);
+            } catch { return true; }
+          })
+          // Deduplicate by (listId, senderId/email)
+          .filter((inv) => {
+            const listId = inv && inv.list && inv.list.id ? inv.list.id : inv && inv.token;
+            const fromKey = inv && inv.from ? (inv.from.id || inv.from.email || '') : '';
+            const key = String(listId) + '|' + String(fromKey);
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+      })()
+    : [];
   body.innerHTML = `
     <div class="wishlist-header">
       <input id="newListName" class="input" placeholder="New wishlist name (e.g. Personal)" />
@@ -516,11 +1343,11 @@ function openWishlistModal() {
         </div>
       `).join('')}
     </div>
-    ${state.incomingListInvites && state.incomingListInvites.length ? `
+    ${invitesUnique && invitesUnique.length ? `
       <div style="margin-top:16px;">
         <label>Shared wishlist invites</label>
         <div class="picker-list">
-          ${state.incomingListInvites.map(inv => `
+          ${invitesUnique.map(inv => `
             <div class="picker-row">
               <div><strong>${inv.list.name}</strong> <small style="opacity:.7">from ${inv.from?.name || inv.from?.email || 'Unknown'}</small></div>
               <div style="display:flex; gap:6px;">
@@ -575,6 +1402,16 @@ function openWishlistModal() {
         } catch {}
       }
     }
+    if (t && t.matches('[data-add-to-bag-fromlist]')) {
+      const pid = Number(t.getAttribute('data-pid'));
+      const listId = t.getAttribute('data-list');
+      openAddToBagPrompt(pid, { askAssignee: true, fromListId: listId });
+    }
+    if (t && t.matches('[data-add-to-roomcart-fromlist]')) {
+      const pid = Number(t.getAttribute('data-pid'));
+      addToRoomCart(pid, '', 1);
+      toast('Added to room cart');
+    }
     if (t && t.matches('[data-accept-list-invite]')) {
       const token = t.getAttribute('data-token');
       const inv = state.incomingListInvites.find(i => i.token === token);
@@ -582,12 +1419,39 @@ function openWishlistModal() {
       // Add/merge list locally
       const l = Object.assign({}, inv.list);
       l.members = l.members || [];
+      // persist owner metadata if available
+      if (inv.from && inv.from.id) {
+        l.ownerId = inv.from.id || l.ownerId;
+        l.ownerMeta = { id: inv.from.id, name: inv.from.name || '', email: inv.from.email || '' };
+        // Ensure sender exists in friends so we can resolve names
+        if (!state.friends.some(f => f.id === inv.from.id)) {
+          state.friends.push({ id: inv.from.id, name: inv.from.name || inv.from.email || 'Member', email: inv.from.email || '' });
+        }
+      }
       if (!l.members.includes(state.user.id) && state.user.id !== l.ownerId) {
         l.members.push(state.user.id);
       }
+      // Ensure membersMeta exists and contains a proper entry for me and existing members
+      l.membersMeta = Array.isArray(l.membersMeta) ? l.membersMeta : [];
+      const ensureMeta = (uid, name, email) => {
+        if (!uid) return;
+        if (!l.membersMeta.some(m => m.id === uid)) {
+          // Try best-known labels
+          const fr = state.friends.find(f => f.id === uid) || (state.contacts||[]).find(c => c.id === uid);
+          l.membersMeta.push({ id: uid, name: name || (fr ? (fr.name || fr.email) : '' ) || resolveUserLabel(uid), email: email || (fr ? fr.email : '') || '' });
+        }
+      };
+      // Add self meta
+      ensureMeta(state.user.id, state.user.name, state.user.email);
+      // Add owner as member meta too (so it appears in assignee list even if not in members array)
+      if (l.ownerMeta && l.ownerMeta.id) ensureMeta(l.ownerMeta.id, l.ownerMeta.name, l.ownerMeta.email);
+      // Add existing member metas
+      (l.members||[]).forEach(mid => { ensureMeta(mid, '', ''); });
       upsertWishlist(l);
-      // Remove invite
-      state.incomingListInvites = state.incomingListInvites.filter(i => i.token !== token);
+      // Remove ALL invites for this list (not just the clicked token)
+      state.incomingListInvites = state.incomingListInvites.filter(i => {
+        try { return (i && i.list && i.list.id) !== l.id; } catch { return true; }
+      });
       saveState();
       // Notify inviter to add this member and sync the list to both sides
       sendSync('wishlist:accept', { listId: l.id, member: { id: state.user.id, name: state.user.name, email: state.user.email } });
@@ -599,7 +1463,17 @@ function openWishlistModal() {
     }
     if (t && t.matches('[data-reject-list-invite]')) {
       const token = t.getAttribute('data-token');
-      state.incomingListInvites = state.incomingListInvites.filter(i => i.token !== token);
+      const inv = state.incomingListInvites.find(i => i.token === token);
+      if (inv && inv.list && inv.list.id) {
+        // Remove ALL invites for this list
+        const listId = inv.list.id;
+        state.incomingListInvites = state.incomingListInvites.filter(i => {
+          try { return (i && i.list && i.list.id) !== listId; } catch { return true; }
+        });
+      } else {
+        // Fallback: remove by token
+        state.incomingListInvites = state.incomingListInvites.filter(i => i.token !== token);
+      }
       saveState();
       toast('Invite dismissed');
       openWishlistModal();
@@ -656,7 +1530,11 @@ function renderWishlistItems(listId) {
             ${it.size ? `<small>Size: ${it.size}</small>` : ''}
             ${it.note ? `<small>Note: ${it.note}</small>` : ''}
           </div>
-          <button class="btn-outline" data-remove-item data-list="${listId}" data-pid="${it.productId}">Remove</button>
+          <div style="display:flex; gap:6px; justify-content:flex-end;">
+            <button class="btn-outline" data-add-to-bag-fromlist data-list="${listId}" data-pid="${it.productId}">Add to Bag</button>
+            ${state.room && state.room.id ? `<button class="btn-outline" data-add-to-roomcart-fromlist data-list="${listId}" data-pid="${it.productId}">Add to Room Cart</button>` : ''}
+            <button class="btn-outline" data-remove-item data-list="${listId}" data-pid="${it.productId}">Remove</button>
+          </div>
         </div>
       `;
     }).join('');
@@ -751,7 +1629,7 @@ function openPickerModal(productId) {
   body.querySelector('#pickerCreate').addEventListener('click', () => {
     const name = body.querySelector('#pickerNewList').value.trim();
     if (!name) return;
-    const list = { id: generateId('wl'), name, ownerId: state.user.id, members: [], items: [] };
+    const list = { id: generateId('wl'), name, ownerId: state.user.id, ownerMeta: { id: state.user.id, name: state.user.name, email: state.user.email }, members: [], membersMeta: [], items: [] };
     upsertWishlist(list);
     openPickerModal(productId);
   });
@@ -914,6 +1792,58 @@ function connectRelay() {
           }
         }
 
+        // Room Cart events
+        if (msg.type && msg.type.startsWith('roomcart:')) {
+          const roomId = msg.roomId;
+          if (!roomId || !state.room || state.room.id !== roomId) {
+            // ignore events for other rooms
+          } else {
+            state.roomCart = state.roomCart && state.roomCart.roomId === roomId ? state.roomCart : { roomId, items: [], split: { method: 'equal', custom: {} }, participants: {} };
+            const rc = state.roomCart;
+            rc.participants = rc.participants || {};
+            if (msg.type === 'roomcart:add' && msg.item) {
+              const it = msg.item;
+              // merge by productId + addedBy + size
+              const existing = (rc.items||[]).find(x => x.productId === it.productId && x.addedBy === it.addedBy && String(x.size||'') === String(it.size||''));
+              if (existing) { existing.qty = Math.max(1, (existing.qty||1) + (it.qty||1)); } else { (rc.items = rc.items||[]).push({ productId: it.productId, size: it.size||'', qty: Math.max(1, it.qty||1), addedBy: it.addedBy, addedByName: it.addedByName }); }
+              if (it.addedBy) rc.participants[it.addedBy] = rc.participants[it.addedBy] || { id: it.addedBy, name: it.addedByName || 'Member', email: '' };
+              saveState();
+            }
+            if (msg.type === 'roomcart:update' && (typeof msg.productId !== 'undefined') && msg.addedBy) {
+              const it = (rc.items||[]).find(x => x.productId === msg.productId && x.addedBy === msg.addedBy);
+              if (it && msg.changes) {
+                if (typeof msg.changes.size !== 'undefined') it.size = msg.changes.size;
+                if (typeof msg.changes.qty !== 'undefined') it.qty = Math.max(1, Number(msg.changes.qty));
+                saveState();
+              }
+            }
+            if (msg.type === 'roomcart:remove' && (typeof msg.productId !== 'undefined') && msg.addedBy) {
+              rc.items = (rc.items||[]).filter(x => !(x.productId === msg.productId && x.addedBy === msg.addedBy));
+              saveState();
+            }
+            if (msg.type === 'roomcart:snapshot' && msg.snapshot && msg.snapshot.roomId === roomId) {
+              // trust snapshot
+              state.roomCart = msg.snapshot;
+              saveState();
+            }
+            if (msg.type === 'roomcart:requestSync') {
+              // someone requested, send our snapshot if we have any
+              if (state.roomCart && state.roomCart.roomId === roomId && (state.roomCart.items||[]).length) {
+                roomCartSendSnapshot();
+              }
+            }
+            if (msg.type === 'roomcart:split' && msg.split) {
+              rc.split = msg.split;
+              saveState();
+            }
+            // If cart modal open on room cart, rerender
+            const cartModal = document.getElementById('cartModal');
+            if (cartModal && cartModal.getAttribute('aria-hidden') === 'false') {
+              openCartModal('roomcart');
+            }
+          }
+        }
+
         // Wishlist: incoming invite for the intended recipient
         if (msg.type === 'wishlist:invite') {
           const { token, toEmail, toId, list, from } = msg;
@@ -1044,6 +1974,78 @@ function setupCarousel() {
 function setYear() {
   const y = document.getElementById('year');
   if (y) y.textContent = String(new Date().getFullYear());
+}
+
+// -------- Auth Gate (Login / Sign up) --------
+function setupAuthGate() {
+  const gate = document.getElementById('authGate');
+  const form = document.getElementById('authForm');
+  const btnLogin = document.getElementById('authLogin');
+  const inName = document.getElementById('authName');
+  const inEmail = document.getElementById('authEmail');
+  const header = document.querySelector('header.header');
+  const main = document.querySelector('main');
+  const footer = document.querySelector('footer.footer');
+  const mynaBtn = document.getElementById('mynaToggle');
+  if (!gate || !form || !btnLogin || !inEmail) return;
+
+  function hideApp(hide) {
+    const display = hide ? 'none' : '';
+    if (header) header.style.display = display;
+    if (main) main.style.display = display;
+    if (footer) footer.style.display = display;
+    if (mynaBtn) mynaBtn.hidden = hide ? true : false;
+  }
+
+  function userFromStorage() {
+    try { return JSON.parse(localStorage.getItem('myntra_user') || 'null'); } catch { return null; }
+  }
+  function persistUser(u) {
+    localStorage.setItem('myntra_user', JSON.stringify(u));
+    state.user = Object.assign(state.user || {}, u);
+    saveState();
+  }
+  function makeId(email) {
+    const base = btoa(unescape(encodeURIComponent(String(email).toLowerCase()))).replace(/[^a-z0-9]/gi,'').slice(0,12);
+    return 'u_' + (base || Math.random().toString(36).slice(2, 10));
+  }
+
+  const existing = userFromStorage();
+  if (existing && existing.email) {
+    // Restore session
+    state.user = Object.assign(state.user || {}, existing);
+    gate.hidden = true;
+    hideApp(false);
+    return;
+  }
+
+  // No session: show auth gate and hide rest of app
+  gate.hidden = false;
+  hideApp(true);
+
+  btnLogin.addEventListener('click', (e) => {
+    e.preventDefault();
+    const email = (inEmail.value || '').trim();
+    if (!email) { inEmail.focus(); return; }
+    const name = (inName.value || '').trim() || email.split('@')[0];
+    const user = { id: makeId(email), email, name };
+    persistUser(user);
+    gate.hidden = true;
+    hideApp(false);
+    document.getElementById('profileLabel').textContent = user.name || 'Profile';
+  });
+
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const email = (inEmail.value || '').trim();
+    const name = (inName.value || '').trim();
+    if (!email || !name) { (name ? inEmail : inName).focus(); return; }
+    const user = { id: makeId(email), email, name };
+    persistUser(user);
+    gate.hidden = true;
+    hideApp(false);
+    document.getElementById('profileLabel').textContent = user.name || 'Profile';
+  });
 }
 
 // -------- Myna Chatbot --------
@@ -1420,6 +2422,18 @@ function startRoom(roomId, roomName) {
   api.addListener('videoConferenceJoined', () => {
     // nothing else; toolbar has screen share button by default
   });
+  // Initialize room cart context
+  try {
+    if (!state.roomCart || state.roomCart.roomId !== roomId) {
+      state.roomCart = { roomId, items: [], split: { method: 'equal', custom: {} }, participants: {} };
+      saveState();
+    } else {
+      // ensure roomId is set
+      state.roomCart.roomId = roomId;
+    }
+  } catch {}
+  // Ask peers for latest snapshot
+  try { roomCartBroadcast({ type: 'roomcart:requestSync' }); } catch {}
 }
 
 function setupRoomUX() {
@@ -1456,12 +2470,15 @@ document.addEventListener('DOMContentLoaded', () => {
   renderTrending();
   setupControls();
   setupCartWishlist();
+  setupCartUI();
   setupSearch();
   setupCarousel();
   setupModal();
   setupRoomUX();
   setYear();
-  ensureUserProfile();
+  // Auth gate runs first; will set/ensure user session
+  setupAuthGate();
+  // If a previous session existed, profile is ensured by setupAuthGate
   setupProfileButton();
   document.getElementById('profileLabel').textContent = state.user.name || 'Profile';
   setupWishlistModals();

@@ -262,6 +262,41 @@ body {
 .friend-form { display: grid; gap: 8px; }
 .friend-form .row { display: grid; gap: 6px; }
 
+/* Enhancements: smoother row visuals and button interactions */
+.picker-row {
+  background: #fff;
+  transition: box-shadow .15s ease, transform .12s ease;
+}
+.picker-row:hover { box-shadow: 0 4px 16px rgba(0,0,0,.08); transform: translateY(-1px); }
+.btn-outline { transition: background-color .15s ease, color .15s ease, border-color .15s ease; }
+.btn-outline:hover { background: var(--text); color: #fff; border-color: var(--text); }
+
+/* Make +/- quantity buttons in rows a bit larger and consistent */
+[data-cart-inc], [data-cart-dec], [data-room-inc], [data-room-dec] {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  font-weight: 800;
+}
+
+/* Cart modal should scroll when content exceeds viewport */
+#cartModal .modal-content {
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+#cartModal .modal-body {
+  grid-template-columns: 1fr;
+  overflow: auto;
+}
+#cartModal .modal-body::-webkit-scrollbar { width: 10px; }
+#cartModal .modal-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
+#cartModal .modal-body::-webkit-scrollbar-thumb:hover { background: #d0d0d4; }
+
+/* Ensure quick view modal content can scroll on small screens */
+#quickView .modal-content { max-height: 86vh; display: flex; flex-direction: column; }
+#quickView .modal-body { overflow: auto; }
+
 /* (profile modal removed) */
 
 /* Toasts */
@@ -296,6 +331,29 @@ body {
 /* Respect [hidden] attribute for chat UI */
 #mynaPanel[hidden] { display: none !important; }
 #mynaToggle[hidden] { display: none !important; }
+
+/* Auth Gate */
+#authGate {
+  position: fixed; inset: 0; z-index: 3000;
+  background: rgba(0,0,0,.55);
+  display: grid; place-items: center;
+}
+#authGate[hidden] { display: none !important; }
+.auth-card {
+  width: min(420px, 90vw);
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0,0,0,.35);
+  padding: 18px;
+  display: grid; gap: 12px;
+}
+.auth-form { display: grid; gap: 10px; }
+.auth-form label { display: grid; gap: 6px; }
+.auth-form input { padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); }
+.auth-actions { display: flex; gap: 10px; justify-content: end; margin-top: 6px; }
+.muted { color: var(--muted); font-size: 13px; }
 .myna-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; background: var(--accent); border-bottom: 1px solid var(--border); }
 .myna-messages { padding: 10px; display: grid; gap: 8px; max-height: 50vh; overflow: auto; }
 .myna-form { display: flex; gap: 8px; padding: 10px; border-top: 1px solid var(--border); }

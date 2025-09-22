@@ -49,7 +49,7 @@
                     <span class="label">Wishlist</span>
                     <span class="badge" id="wishlistCount">0</span>
                 </button>
-                <button class="action" aria-label="Bag">
+                <button class="action" aria-label="Bag" id="openCart">
                     <span class="icon">🛍️</span>
                     <span class="label">Bag</span>
                     <span class="badge" id="cartCount">0</span>
@@ -291,6 +291,15 @@
         </div>
     </div>
 
+    <!-- Cart / Checkout Modal -->
+    <div class="modal" id="cartModal" aria-hidden="true" role="dialog" aria-modal="true">
+        <div class="modal-backdrop" data-close-cart></div>
+        <div class="modal-content" role="document">
+            <button class="modal-close" aria-label="Close" data-close-cart>✕</button>
+            <div class="modal-body" id="cartModalBody"><!-- filled by JS --></div>
+        </div>
+    </div>
+
     <!-- Friends Manage Modal -->
     <div class="modal" id="friendsModal" aria-hidden="true" role="dialog" aria-modal="true">
         <div class="modal-backdrop" data-close-friends></div>
@@ -319,6 +328,28 @@
 
     <script src="https://meet.jit.si/external_api.js"></script>
     <script src="./script.js"></script>
+
+    <!-- Auth Gate (Login / Sign up) -->
+    <section id="authGate" aria-label="Authentication" hidden>
+        <div class="auth-card" role="dialog" aria-modal="true">
+            <h2>Welcome to Myntra</h2>
+            <p class="muted">Sign in to continue</p>
+            <form id="authForm" class="auth-form">
+                <label>
+                    <span>Name</span>
+                    <input id="authName" type="text" placeholder="Your name" />
+                </label>
+                <label>
+                    <span>Email</span>
+                    <input id="authEmail" type="email" placeholder="you@example.com" required />
+                </label>
+                <div class="auth-actions">
+                    <button type="button" id="authLogin" class="btn-outline">Log in</button>
+                    <button type="submit" class="btn-primary">Sign up</button>
+                </div>
+            </form>
+        </div>
+    </section>
 </body>
 </html>
 
