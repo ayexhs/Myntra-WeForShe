@@ -255,6 +255,14 @@ body {
 .picker-list { display: grid; gap: 8px; }
 .picker-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; }
 
+/* In picker rows, action buttons should not be full width */
+#pickerModal .picker-row .btn-outline,
+#wishlistModal .picker-row .btn-outline {
+  width: auto;
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
 /* Friends modal */
 #friendsModal .modal-body { grid-template-columns: 1fr; }
 .friends-grid { display: grid; gap: 8px; }

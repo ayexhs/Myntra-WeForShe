@@ -199,9 +199,16 @@ function openAddToBagPrompt(productId, options = {}) {
   `;
   modal.setAttribute('aria-hidden','false');
   setTimeout(() => {
-    const btn = body.querySelector('#confirmAddToBag');
-    if (!btn) return;
+    const oldBtn = body.querySelector('#confirmAddToBag');
+    if (!oldBtn) return;
+    // Replace with a fresh node to drop any previously attached listeners
+    const btn = oldBtn.cloneNode(true);
+    oldBtn.parentNode.replaceChild(btn, oldBtn);
+    // Ensure this handler runs only once per modal open and guard against rapid clicks
+    let handled = false;
     btn.addEventListener('click', () => {
+      if (handled) return; handled = true;
+      try { btn.disabled = true; } catch {}
       const size = String(body.querySelector('#bagSize')?.value || '').trim();
       const qty = Math.max(1, Number(body.querySelector('#bagQty')?.value || 1));
       let forUser = { id: state.user.id, name: state.user.name, email: state.user.email };
@@ -216,10 +223,30 @@ function openAddToBagPrompt(productId, options = {}) {
           else forUser = { id: uid, name: resolveUserLabel(uid), email: '' };
         }
       }
-      // Add to cartV2
-      const cid = 'c-' + Math.random().toString(36).slice(2, 9);
+      // Add to cartV2 (merge if same productId+size+assignee already exists)
       state.cartV2 = state.cartV2 || [];
-      state.cartV2.push({ id: cid, productId, size, qty, forUser });
+      const keyMatch = (x) => x.productId === productId && String(x.size||'') === String(size||'') && (x.forUser?.id || '') === (forUser.id || '');
+      const existing = state.cartV2.find(keyMatch);
+      if (existing) {
+        existing.qty = Math.max(1, (existing.qty||1) + qty);
+      } else {
+        const cid = 'c-' + Math.random().toString(36).slice(2, 9);
+        state.cartV2.push({ id: cid, productId, size, qty, forUser });
+      }
+      // Deduplicate cart lines just in case multiple handlers fired
+      try {
+        const map = new Map();
+        (state.cartV2||[]).forEach((l) => {
+          const k = `${l.productId}|${String(l.size||'')}|${(l.forUser&&l.forUser.id)||''}`;
+          if (map.has(k)) {
+            const ex = map.get(k);
+            ex.qty = Math.max(1, (Number(ex.qty)||1) + (Number(l.qty)||1));
+          } else {
+            map.set(k, Object.assign({}, l));
+          }
+        });
+        state.cartV2 = Array.from(map.values());
+      } catch {}
       state.cartCount = state.cartV2.reduce((s,l)=>s+(l.qty||1),0);
       try { document.getElementById('cartCount').textContent = String(state.cartCount); } catch {}
       saveState();
@@ -227,7 +254,7 @@ function openAddToBagPrompt(productId, options = {}) {
       // close
       const pm = document.getElementById('pickerModal');
       if (pm) pm.setAttribute('aria-hidden','true');
-    });
+    }, { once: true });
   }, 0);
 }
 
@@ -838,6 +865,20 @@ function loadState() {
     try {
       const cartV2 = JSON.parse(localStorage.getItem('myntra_cart_v2') || '[]');
       if (Array.isArray(cartV2) && cartV2.length) state.cartV2 = cartV2;
+      // Deduplicate any stray duplicates from previous sessions
+      if (Array.isArray(state.cartV2) && state.cartV2.length) {
+        const map = new Map();
+        state.cartV2.forEach((l) => {
+          const k = `${l.productId}|${String(l.size||'')}|${(l.forUser&&l.forUser.id)||''}`;
+          if (map.has(k)) {
+            const ex = map.get(k);
+            ex.qty = Math.max(1, (Number(ex.qty)||1) + (Number(l.qty)||1));
+          } else {
+            map.set(k, Object.assign({}, l));
+          }
+        });
+        state.cartV2 = Array.from(map.values());
+      }
       // migrate legacy to v2 once
       if ((!state.cartV2 || !state.cartV2.length) && Array.isArray(cart) && cart.length) {
         state.cartV2 = cart.map(pid => ({ id: 'c-'+Math.random().toString(36).slice(2,9), productId: pid, size: '', qty: 1, forUser: { id: state.user.id, name: state.user.name, email: state.user.email } }));
